@@ -1818,6 +1818,107 @@ render();
     };
   }
 
+  const inactivityLimit = 15 * 60 * 1000;
+  let idleSession = null;
+  let idleTimer = null;
+  let idleLogoutRunning = false;
+
+  function sessionActivityKey(session) {
+    // Supabase keeps session_id stable across access-token refreshes.
+    try {
+      const payload = session.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const {session_id: id} = JSON.parse(atob(payload));
+      if (typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) {
+        return "love-idle:" + id;
+      }
+    } catch {}
+    return null;
+  }
+
+  function storedActivity(key) {
+    try {
+      const stamp = Number(localStorage.getItem(key));
+      return Number.isFinite(stamp) && stamp > 0 ? stamp : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function recordActivity(stamp) {
+    idleSession.lastActivity = stamp;
+    if (idleSession.key) {
+      try { localStorage.setItem(idleSession.key, String(stamp)); } catch {}
+    }
+  }
+
+  function stopIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+    idleSession = null;
+  }
+
+  async function expireIdleSession() {
+    idleLogoutRunning = true;
+    entered = true;
+    showSignedOut();
+    passwordInput.value = "";
+    showMessage("Du wurdest nach 15 Minuten ohne Bedienung abgemeldet. Bitte melde dich erneut an.", false);
+    try {
+      const {error} = await authClient.auth.signOut({scope:"local"});
+      if (error) throw error;
+    } catch {
+      // Keep the activity marker so a stored session cannot reopen on reload.
+    } finally {
+      idleLogoutRunning = false;
+    }
+  }
+
+  function checkIdleSession(event) {
+    if (!idleSession) return false;
+    const now = Date.now();
+    const last = Math.max(idleSession.lastActivity, idleSession.key ? storedActivity(idleSession.key) : 0);
+    clearTimeout(idleTimer);
+    if (now - last >= inactivityLimit) {
+      if (event?.cancelable) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+      void expireIdleSession();
+      return true;
+    }
+    const active = event?.isTrusted && !document.hidden;
+    // Limit storage writes from scrolling while keeping the deadline current.
+    if (active) {
+      idleSession.lastActivity = now;
+      if (now - idleSession.lastSaved >= 1000) {
+        recordActivity(now);
+        idleSession.lastSaved = now;
+      }
+    }
+    idleTimer = setTimeout(checkIdleSession, active ? inactivityLimit : inactivityLimit - (now - last));
+    return false;
+  }
+
+  function watchSessionActivity(session) {
+    const key = sessionActivityKey(session);
+    if (!idleSession || idleSession.key !== key || idleSession.userId !== session.user.id) {
+      const saved = key ? storedActivity(key) : 0;
+      idleSession = {key, userId: session.user.id, lastActivity: saved, lastSaved: saved};
+      if (!saved) recordActivity(Date.now());
+    }
+    return !checkIdleSession();
+  }
+
+  for (const event of ["pointerdown", "keydown", "click", "input", "scroll"]) {
+    document.addEventListener(event, checkIdleSession, {capture:true});
+  }
+  document.addEventListener("visibilitychange", () => checkIdleSession());
+  window.addEventListener("pageshow", () => checkIdleSession());
+  window.addEventListener("focus", () => checkIdleSession());
+  window.addEventListener("storage", event => {
+    if (idleSession?.key && event.key === idleSession.key) checkIdleSession();
+  });
+
   async function openPrivateArea(user) {
     if (account?.userId === user.id) return;
     const attempt = ++accessAttempt;
@@ -1947,6 +2048,7 @@ render();
   document.addEventListener("visibilitychange", refreshConnectionStatus);
 
   function showSignedOut() {
+    stopIdleTimer();
     clearInterval(presenceTimer);
     presenceTimer = null;
     document.body.classList.remove("app-signed-in");
@@ -2055,7 +2157,9 @@ render();
     }
     if (!recoverySession) {
       setTimeout(() => {
-        if (!recoverySession) void openPrivateArea(session.user);
+        if (!recoverySession && !idleLogoutRunning && watchSessionActivity(session)) {
+          void openPrivateArea(session.user);
+        }
       }, 0);
     }
   });
