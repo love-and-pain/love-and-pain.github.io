@@ -642,7 +642,10 @@ if(view==="vorlieben") root.innerHTML=prefsView();
 if(view==="eigene") root.innerHTML=customView();
 if(view==="outdoor") root.innerHTML=outdoorView();
 if(view==="toys") root.innerHTML=toyGalleryView();
-if(view==="profil") root.innerHTML=profileView();
+if (view === "profil") {
+  root.innerHTML = profileView();
+  void refreshPushToggle();
+}
 if(view==="spiele") root.innerHTML=gamesView();
 for (const picker of root.querySelectorAll("details[data-toy-picker]")) {
   if (!openPickers.has(picker.dataset.toyPicker)) continue;
@@ -864,6 +867,86 @@ function previewProfileToy(id) {
   document.getElementById("profileToyPhoto").innerHTML = profileToyPhoto(id);
 }
 
+function pushSupported() {
+  return window.isSecureContext && "serviceWorker" in navigator &&
+    "PushManager" in window && "Notification" in window;
+}
+
+async function refreshPushToggle() {
+  const toggle = document.getElementById("pushToggle");
+  const status = document.getElementById("pushStatus");
+  if (!pushSupported()) {
+    status.textContent = "Dieser Browser bietet hier keine Push-Benachrichtigungen an.";
+    return;
+  }
+  const userId = account.userId;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (subscription) {
+      const {data, error} = await authClient.from("love_push_devices").select("id")
+        .eq("user_id", userId).eq("endpoint", subscription.endpoint).maybeSingle();
+      if (error) throw error;
+      toggle.checked = Boolean(data);
+    }
+    toggle.disabled = false;
+  } catch {
+    status.textContent = "Die Benachrichtigungseinstellung konnte nicht geladen werden.";
+  }
+}
+
+async function changePushToggle(toggle) {
+  const status = document.getElementById("pushStatus");
+  const enabled = toggle.checked;
+  const active = account;
+  toggle.disabled = true;
+  try {
+    if (enabled && await Notification.requestPermission() !== "granted") {
+      toggle.checked = false;
+      status.textContent = "Erlaube Benachrichtigungen in den Einstellungen deines Browsers.";
+      return;
+    }
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.active) throw new Error("Service Worker unavailable");
+    const current = await registration.pushManager.getSubscription();
+    if (active !== account) return;
+    if (enabled) {
+      const {data: publicKey, error: keyError} = await authClient.rpc("love_push_public_key");
+      if (keyError || !publicKey || active !== account) throw new Error("Push service unavailable");
+      const subscription = current ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: Uint8Array.from(
+          atob(publicKey.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0)
+        )
+      });
+      const {endpoint, keys} = subscription.toJSON();
+      const {error} = await authClient.from("love_push_devices").insert({
+        user_id: active.userId, endpoint, p256dh: keys.p256dh, auth_key: keys.auth
+      });
+      if (error) {
+        if (!current) await subscription.unsubscribe().catch(() => {});
+        throw error;
+      }
+      status.textContent = "Push ist auf diesem Gerät eingeschaltet.";
+    } else {
+      if (current) {
+        const {error} = await authClient.from("love_push_devices").delete()
+          .eq("user_id", active.userId).eq("endpoint", current.endpoint);
+        if (error) throw error;
+        await current.unsubscribe().catch(() => {});
+      }
+      const notices = await registration.getNotifications().catch(() => []);
+      notices.forEach(notice => notice.close());
+      status.textContent = "Push ist auf diesem Gerät ausgeschaltet.";
+    }
+  } catch {
+    toggle.checked = !enabled;
+    status.textContent = "Die Einstellung konnte nicht gespeichert werden. Bitte versuche es erneut.";
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
 async function signOutOfApp() {
   const {error} = await authClient.auth.signOut();
   if (error) alert("Abmelden fehlgeschlagen: " + error.message);
@@ -888,6 +971,16 @@ function profileView() {
       ${avatarOptions.map(([emoji, label]) => `<option value="${emoji}" ${emoji === account.avatar ? "selected" : ""}>${emoji} ${label}</option>`).join("")}
     </select>
     <p id="avatarStatus" role="status"></p>
+    <section class="panel">
+      <h3>Benachrichtigungen</h3>
+      <label>
+        <input id="pushToggle" type="checkbox" role="switch" onchange="changePushToggle(this)"
+          aria-describedby="pushHelp pushStatus" disabled>
+        Push auf diesem Gerät
+      </label>
+      <p id="pushHelp">Für neue Termine und Fotos in der gemeinsamen Galerie.</p>
+      <p id="pushStatus" role="status"></p>
+    </section>
     <form onsubmit="saveProfileFields(event)">
       <p>Alles ist freiwillig und zunächst privat. Du kannst jedes Feld einzeln freigeben.</p>
       <div class="profile-grid">${profileFields.map(field =>
@@ -1753,6 +1846,13 @@ render();
       </button>`;
     updateAvatarConnection();
     startPartnerPresence();
+    const destination = new URLSearchParams(location.search).get("push");
+    if (destination === "kalender" || destination === "toys") {
+      const url = new URL(location.href);
+      url.searchParams.delete("push");
+      history.replaceState(null, "", url);
+      goView(destination);
+    }
     document.getElementById("profileButton").addEventListener("click", () => {
       goView("profil");
       document.getElementById("profileAvatarSelect")?.focus({preventScroll:true});
