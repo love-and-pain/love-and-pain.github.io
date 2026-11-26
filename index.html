@@ -177,13 +177,16 @@ select,input,textarea{background:#10090c;border-color:#60202e;color:#fff1f2}
 .account-identity{display:grid;justify-items:center;gap:5px;-webkit-user-select:none;user-select:none;
   -webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
 .account-name{color:#e5b4c3;font-size:14px;font-weight:600}
-#accountAvatar{position:relative;--avatar-ring:#ff526e;--avatar-glow:#ff345566}
-#accountAvatar[data-online="true"]{--avatar-ring:#65e6a0;--avatar-glow:#40d78266}
-#accountAvatar::after{content:"";position:absolute;inset:-2px;border:2px solid var(--avatar-ring);
+.account-identities{display:flex;gap:16px;align-items:flex-start}
+.account-identities [hidden]{display:none}
+#accountAvatar,#partnerAvatar{position:relative;--avatar-ring:#ff526e;--avatar-glow:#ff345566}
+#accountAvatar[data-online="true"],#partnerAvatar[data-online="true"]{--avatar-ring:#65e6a0;--avatar-glow:#40d78266}
+#accountAvatar::after,#partnerAvatar::after{content:"";position:absolute;inset:-2px;border:2px solid var(--avatar-ring);
   border-radius:50%;box-shadow:0 0 10px var(--avatar-glow);pointer-events:none;
   animation:avatar-ring-pulse 2.8s ease-in-out infinite}
 @keyframes avatar-ring-pulse{0%,100%{opacity:.56}50%{opacity:1}}
-@media(prefers-reduced-motion:reduce){#accountAvatar::after{animation:none}}
+@media(prefers-reduced-motion:reduce){#accountAvatar::after,#partnerAvatar::after{animation:none}}
+#partnerAvatar[data-online="unknown"]{--avatar-ring:#866d77;--avatar-glow:transparent}
 .profile-menu-button{min-width:44px;min-height:44px;display:grid;place-items:center}
 .profile-menu-icon,.profile-menu-icon::before,.profile-menu-icon::after{
   display:block;width:19px;height:2px;border-radius:2px;background:currentColor}
@@ -1735,14 +1738,21 @@ render();
     appMain.style.display = "block";
     accountBar.style.display = "flex";
     account.avatar = profileAvatar(user.user_metadata?.profile_avatar);
-    accountBar.innerHTML = `<div class="account-identity">
-      <span id="accountAvatar" class="account-avatar" role="img">${account.avatar}</span>
-      <span class="account-name">${esc(account.displayName)}</span>
+    accountBar.innerHTML = `<div class="account-identities">
+      <div class="account-identity">
+        <span id="accountAvatar" class="account-avatar" role="img">${account.avatar}</span>
+        <span class="account-name">${esc(account.displayName)}</span>
+      </div>
+      <div id="partnerIdentity" class="account-identity" hidden>
+        <span id="partnerAvatar" class="account-avatar" role="img">🖤</span>
+        <span class="account-name">Schatz</span>
+      </div>
     </div>
       <button id="profileButton" class="profile-menu-button" type="button" aria-label="Mein Bereich öffnen">
         <span class="profile-menu-icon" aria-hidden="true"></span>
       </button>`;
     updateAvatarConnection();
+    startPartnerPresence();
     document.getElementById("profileButton").addEventListener("click", () => {
       goView("profil");
       document.getElementById("profileAvatarSelect")?.focus({preventScroll:true});
@@ -1758,10 +1768,67 @@ render();
     avatar.setAttribute("aria-label", `Profil-Smiley · ${status}`);
   }
 
-  window.addEventListener("online", updateAvatarConnection);
-  window.addEventListener("offline", updateAvatarConnection);
+  let presenceTimer = null;
+  let presencePendingFor = null;
+
+  function showPartnerStatus(partner) {
+    const identity = document.getElementById("partnerIdentity");
+    const avatar = document.getElementById("partnerAvatar");
+    if (!identity || !avatar) return;
+    if (!partner) {
+      identity.hidden = true;
+      return;
+    }
+    const status = partner.partner_online == null ? "Status unbekannt"
+      : partner.partner_online ? "In Love and Pain aktiv" : "Nicht aktiv";
+    identity.hidden = false;
+    avatar.textContent = partner.partner_avatar ? profileAvatar(partner.partner_avatar) : "🖤";
+    avatar.dataset.online = partner.partner_online == null ? "unknown" : String(partner.partner_online);
+    avatar.title = status;
+    avatar.setAttribute("aria-label", `Schatz · ${status}`);
+  }
+
+  async function refreshPartnerPresence() {
+    if (!account || document.hidden) return;
+    const active = account;
+    if (presencePendingFor === active) return;
+    if (!navigator.onLine) {
+      const identity = document.getElementById("partnerIdentity");
+      if (identity && !identity.hidden) showPartnerStatus({partner_online:null});
+      return;
+    }
+    presencePendingFor = active;
+    try {
+      const {data,error} = await authClient.rpc("love_presence_ping",{p_couple_id:active.coupleId});
+      if (active !== account) return;
+      if (error) throw error;
+      showPartnerStatus(data[0]);
+    } catch {
+      const identity = document.getElementById("partnerIdentity");
+      if (active === account && identity && !identity.hidden) showPartnerStatus({partner_online:null});
+    } finally {
+      if (presencePendingFor === active) presencePendingFor = null;
+    }
+  }
+
+  function startPartnerPresence() {
+    clearInterval(presenceTimer);
+    presenceTimer = setInterval(refreshPartnerPresence, 15000);
+    void refreshPartnerPresence();
+  }
+
+  function refreshConnectionStatus() {
+    updateAvatarConnection();
+    void refreshPartnerPresence();
+  }
+
+  window.addEventListener("online", refreshConnectionStatus);
+  window.addEventListener("offline", refreshConnectionStatus);
+  document.addEventListener("visibilitychange", refreshConnectionStatus);
 
   function showSignedOut() {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
     document.body.classList.remove("app-signed-in");
     ++accessAttempt;
     clearPrivateData();
