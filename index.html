@@ -417,6 +417,27 @@ body.app-signed-in::before {
 .app-signed-in .day.period { box-shadow:inset 0 -4px #f17b96; }
 .app-signed-in :is(.tag,.dayhead) { color:var(--gold); }
 </style>
+<style>
+.app-signed-in .profile-hero{padding:20px;border:1px solid #783346;border-radius:26px;background:radial-gradient(ellipse at 15% 5%,#58182b,transparent 65%),linear-gradient(140deg,#29121c,#130d14 72%);box-shadow:0 18px 50px #0008}
+.profile-hero-top,.profile-hero-row{display:flex;align-items:center;gap:16px}
+.profile-hero-top{justify-content:space-between;color:#f28297;text-transform:uppercase;letter-spacing:.17em;font-size:.72rem}
+.profile-hero-row{margin:16px 0}
+.profile-hero-row .profile-avatar{width:76px;height:76px;margin:0;border-radius:26px;border-color:#d05571;font-size:35px;box-shadow:0 0 21px #be2a5255}
+.profile-hero-row h2{font-size:clamp(2rem,8vw,3.3rem);margin:0 0 4px}
+.profile-display-name,.profile-mood{color:var(--gold)}
+.profile-mood{display:inline-flex;align-items:center;gap:9px;border:1px solid #783346;border-radius:30px;padding:6px 12px;background:#150e14;font-size:.85rem}
+.profile-mood::before{content:"";width:8px;height:8px;border-radius:50%;background:#e84a71}
+.profile-jump{width:min(100%,240px);text-align:right}
+.profile-jump>summary{display:inline-grid;place-items:center;list-style:none;width:44px;height:44px;border:1px solid #783346;border-radius:12px;color:var(--gold);cursor:pointer;font-size:1.15rem}
+.profile-jump nav{display:grid;gap:4px;margin-top:6px}
+.profile-jump nav button{text-align:left;letter-spacing:normal;text-transform:none}
+.app-signed-in .profile-disclosure{padding:0;border-radius:18px}
+.profile-disclosure>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:52px;padding:13px 18px;list-style:none;cursor:pointer;font:1.25rem Georgia,serif}
+.profile-disclosure>summary::-webkit-details-marker,.profile-jump>summary::-webkit-details-marker{display:none}
+.profile-disclosure>summary::after{content:"";width:8px;height:8px;flex:none;margin-right:4px;border-right:2px solid var(--gold);border-bottom:2px solid var(--gold);transform:rotate(45deg)}
+.profile-disclosure[open]>summary::after{transform:rotate(225deg)}
+.profile-disclosure-content{padding:2px 18px 17px}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -683,7 +704,9 @@ if(view==="eigene") root.innerHTML=customView();
 if(view==="outdoor") root.innerHTML=outdoorView();
 if(view==="toys") root.innerHTML=toyGalleryView();
 if (view === "profil") {
+  const openSections = [...root.querySelectorAll(".profile-disclosure[open]")].map(section => section.id);
   root.innerHTML = profileView();
+  for (const id of openSections) document.getElementById(id).open = true;
   void refreshPushToggle();
 }
 if(view==="spiele") root.innerHTML=gamesView();
@@ -992,6 +1015,15 @@ async function signOutOfApp() {
   if (error) alert("Abmelden fehlgeschlagen: " + error.message);
 }
 
+function openProfileSection(id) {
+  const section = document.getElementById(id);
+  if (!section) return;
+  section.open = true;
+  document.querySelector(".profile-jump").open = false;
+  section.querySelector("summary").focus();
+  section.scrollIntoView({block:"nearest"});
+}
+
 function profileView() {
   const day = dateKey(today);
   const own = state.profileFields.filter(entry => entry.user_id === account.userId);
@@ -1003,16 +1035,54 @@ function profileView() {
     const value = options ? options.find(([key]) => key === entry.value)?.[1] : entry.value;
     return value ? `<dt>${field[1]}</dt><dd>${esc(value)}${entry.field === "toy" ? profileToyPhoto(entry.value) : ""}</dd>` : "";
   }).join("");
+  const mood = currentProfileEntry(own.find(entry => entry.field === "mood"), day)?.value;
+  const fieldMarkup = field => profileFieldView(field, currentProfileEntry(own.find(entry => entry.field === field[0]), day));
   return `<section class="profile-area">
-    <h2>Mein Bereich</h2>
-    <div class="account-avatar profile-avatar" id="profileAvatarPreview" aria-hidden="true">${account.avatar}</div>
+    <div class="profile-hero">
+      <div class="profile-hero-top"><span>Privates Profil</span>
+        <details class="profile-jump"><summary aria-label="Profilmenü">☰</summary>
+          <nav aria-label="Profilabschnitte">
+            <button type="button" onclick="openProfileSection('profile-options')">Profil &amp; Stimmung</button>
+            <button type="button" onclick="openProfileSection('profile-preferences')">Vorlieben</button>
+            <button type="button" onclick="openProfileSection('profile-memories')">Geilster Sex mit dir</button>
+            <button type="button" onclick="openProfileSection('profile-notifications')">Benachrichtigungen</button>
+          </nav>
+        </details>
+      </div>
+      <div class="profile-hero-row">
+        <div class="account-avatar profile-avatar" id="profileAvatarPreview" aria-hidden="true">${account.avatar}</div>
+        <div><h2 id="profileHeading" tabindex="-1">Mein Bereich</h2><span class="profile-display-name">${esc(account.displayName)}</span></div>
+      </div>
+      <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
+    </div>
+    <form onsubmit="saveProfileFields(event)" onchange="if (event.target.name === 'mood') document.getElementById('profileMood').textContent = 'Stimmung: ' + (event.target.value || 'Keine ausgewählt')">
+      <details class="panel profile-disclosure" id="profile-options">
+      <summary>Profil &amp; Stimmung</summary>
+      <div class="profile-disclosure-content">
     <label class="avatar-select-label" for="profileAvatarSelect">Profil-Smiley</label>
     <select id="profileAvatarSelect" class="avatar-select" onchange="saveProfileAvatar(this)">
       ${avatarOptions.map(([emoji, label]) => `<option value="${emoji}" ${emoji === account.avatar ? "selected" : ""}>${emoji} ${label}</option>`).join("")}
     </select>
     <p id="avatarStatus" role="status"></p>
-    <section class="panel">
-      <h3>Benachrichtigungen</h3>
+      ${profileFields.filter(field => field[0] === "mood").map(fieldMarkup).join("")}
+      </div></details>
+      <details class="panel profile-disclosure" id="profile-preferences">
+        <summary>Vorlieben</summary>
+        <div class="profile-disclosure-content">
+          <p>Alles ist freiwillig und zunächst privat. Du kannst jedes Feld einzeln freigeben.</p>
+          <div class="profile-grid">${profileFields.filter(field => field[0] !== "mood").map(fieldMarkup).join("")}</div>
+        </div>
+      </details>
+      <button type="submit" class="primary">Profil speichern</button>
+      <p id="profileStatus" role="status"></p>
+    </form>
+    <details class="panel profile-disclosure" id="profile-memories">
+      <summary>Geilster Sex mit dir</summary>
+      <div id="profileMemories" class="profile-disclosure-content profile-memories">${memoriesView()}</div>
+    </details>
+    <details class="panel profile-disclosure" id="profile-notifications">
+      <summary>Benachrichtigungen</summary>
+      <div class="profile-disclosure-content">
       <label>
         <input id="pushToggle" type="checkbox" role="switch" onchange="changePushToggle(this)"
           aria-describedby="pushHelp pushStatus" disabled>
@@ -1020,15 +1090,8 @@ function profileView() {
       </label>
       <p id="pushHelp">Für neue Termine und Fotos in der gemeinsamen Galerie.</p>
       <p id="pushStatus" role="status"></p>
-    </section>
-    <form onsubmit="saveProfileFields(event)">
-      <p>Alles ist freiwillig und zunächst privat. Du kannst jedes Feld einzeln freigeben.</p>
-      <div class="profile-grid">${profileFields.map(field =>
-        profileFieldView(field, currentProfileEntry(own.find(entry => entry.field === field[0]), day))).join("")}</div>
-      <button type="submit" class="primary">Speichern</button>
-      <p id="profileStatus" role="status"></p>
-    </form>
-    <section id="profileMemories" class="panel profile-memories">${memoriesView()}</section>
+      </div>
+    </details>
     ${sharedList ? `<section class="panel profile-shared"><h3>Mit mir geteilt</h3><dl>${sharedList}</dl></section>` : ""}
     <button class="ghost profile-logout" type="button" onclick="signOutOfApp()">Abmelden</button>
   </section>`;
@@ -1078,8 +1141,7 @@ async function saveProfileFields(event) {
 
 function memoriesView() {
   const editing = state.memories.find(entry => entry.id === editingMemoryId);
-  return `<h3>Geilster Sex mit dir</h3>
-    <p class="muted">Du entscheidest für jede Erinnerung, ob dein Schatz sie sehen darf.</p>
+  return `<p class="muted">Du entscheidest für jede Erinnerung, ob dein Schatz sie sehen darf.</p>
     <form onsubmit="saveMemory(event)">
       <label for="memoryDescription">${editing ? "Erinnerung bearbeiten" : "Neue Erinnerung beschreiben"}</label>
       <textarea id="memoryDescription" rows="4" maxlength="4000" required>${esc(editing?.description || "")}</textarea>
@@ -2010,7 +2072,7 @@ render();
     }
     document.getElementById("profileButton").addEventListener("click", () => {
       goView("profil");
-      document.getElementById("profileAvatarSelect")?.focus({preventScroll:true});
+      document.getElementById("profileHeading")?.focus({preventScroll:true});
     });
   }
 
