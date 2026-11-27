@@ -2139,13 +2139,23 @@ function listView(){
   ).join("") : '<div class="emptymsg">Noch keine Wünsche gespeichert.</div>'}</div>`;
 }
 function favView(){let arr=state.favs.filter(ideaById);let h='<div class="panel"><h2>Favoriten</h2>';if(!arr.length)h+='<div class="emptymsg">Markiert eure Lieblingsideen im Kalender.</div>';arr.forEach(id=>{let x=ideaById(id);if(x)h+=`<div class="listitem">${categoryTag(x.cat)}<div>${esc(x.text)}</div><div class="actions"><button onclick="selectById('${id}')">Im Kalender ansehen</button><button onclick="toggleFav('${id}')">★ Entfernen</button></div></div>`});return h+'</div>'}
+function randomActivities() {
+  return [...days, ...state.custom, ...outdoorIdeas];
+}
 function randomView() {
   const idea = randomSelection;
   const result = idea ? `${categoryTag(idea.cat)}
     <h3>${esc(idea.text)}</h3>
-    <button onclick="selectById('${idea.id}')">Im Kalender ansehen</button>` : "";
+    ${idea.roles ? `<div class="detail-card"><span class="detail-label">👥 Wer macht was?</span><strong>${esc(idea.roles)}</strong></div>` : ""}
+    ${idea.duration || idea.level ? `<div class="detail-grid">
+      ${idea.duration ? `<div class="detail-card"><span class="detail-label">⏱ Zeit einplanen</span><strong>${esc(idea.duration)}</strong></div>` : ""}
+      ${idea.level ? `<div class="detail-card"><span class="detail-label">⚡ Intensität</span><strong>${esc(idea.level)}</strong></div>` : ""}
+    </div>` : ""}
+    ${idea.materials?.length ? `<div class="detail-card"><span class="detail-label">🧰 Benötigte Utensilien / Vorbereitung</span>
+      <ul class="materials">${idea.materials.map(item => `<li>${esc(item)}</li>`).join("")}</ul></div>` : ""}
+    ${isReleased(idea.day) ? `<button onclick="selectById('${idea.id}')">Im Kalender ansehen</button>` : ""}` : "";
   return `<div class="panel"><h2>🎲 Zufallsgenerator</h2>
-    <button class="primary" onclick="randomIdea()" ${releasedDays().length ? "" : "disabled"}>Idee ziehen</button>
+    <button class="primary" onclick="randomIdea()" ${randomActivities().length ? "" : "disabled"}>Idee ziehen</button>
     <div id="random-result" aria-live="polite">${result}</div>
   </div>${prefsView()}`;
 }
@@ -2213,10 +2223,10 @@ function togglePref(cat, checked) {
 }
 function randomIdea() {
   today = berlinCalendarDate();
-  const available = releasedDays();
+  const available = randomActivities();
   const preferred = available.filter(idea => state.prefs.includes(idea.cat));
   const pool = preferred.length ? preferred : available;
-  const alternatives = pool.filter(idea => idea.id !== randomSelection?.id);
+  const alternatives = pool.filter(idea => idea.text !== randomSelection?.text);
   const choices = alternatives.length ? alternatives : pool;
   if (!choices.length) return;
   randomSelection = choices[Math.floor(Math.random() * choices.length)];
