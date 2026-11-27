@@ -494,6 +494,13 @@ body.app-signed-in::before {
 #profileBioList p{white-space:pre-wrap;overflow-wrap:anywhere}
 #profilePartnerPhoto{width:58px;height:58px;object-fit:cover;border-radius:50%;margin-bottom:10px}
 </style>
+<style>
+#partnerAvatar{padding:0;cursor:pointer}
+#partnerProfilePhoto{width:58px;height:58px;object-fit:cover;border-radius:50%;border:1px solid #783346}
+#partnerProfileContent details{margin-top:8px;padding:10px;border:1px solid #783346;border-radius:12px}
+#partnerProfileContent summary{color:var(--gold);cursor:pointer;overflow-wrap:anywhere}
+#partnerProfileContent p,#partnerProfileContent dd{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -781,6 +788,7 @@ if (view === "profil") {
   mountProfileItems();
 }
 if(view==="spiele") root.innerHTML=gamesView();
+if(view==="partner") void showPartnerProfile(root);
 for (const picker of root.querySelectorAll("details[data-toy-picker]")) {
   if (!openPickers.has(picker.dataset.toyPicker)) continue;
   picker.open = true;
@@ -1621,6 +1629,60 @@ function mountProfileItems() {
       if (current()) photoStatus.textContent = bioStatus.textContent = "Inhalte konnten nicht geladen werden. Öffne „Mein Bereich“ erneut.";
     }
   })();
+}
+
+async function showPartnerProfile(root) {
+  const active = account;
+  const name = active.displayName === "Patrick" ? "Theresa" : "Patrick";
+  const avatar = profileAvatar(document.getElementById("partnerAvatar")?.textContent);
+  root.innerHTML = `<section class="profile-area">
+    <div class="profile-hero">
+      <div class="profile-hero-row">
+        <span class="account-avatar profile-avatar" aria-hidden="true">${esc(avatar)}</span>
+        <div><h2 id="partnerProfileHeading" tabindex="-1">${name}</h2></div>
+        <img id="partnerProfilePhoto" alt="Freigegebenes Profilbild" hidden>
+      </div>
+    </div>
+    <div id="partnerProfileContent" role="status">Freigegebene Inhalte werden geladen …</div>
+  </section>`;
+  const content = document.getElementById("partnerProfileContent");
+  try {
+    const sharedFromPartner = (table, columns) => authClient.from(table).select(columns)
+      .eq("couple_id",active.coupleId).eq("shared",true).neq("user_id",active.userId);
+    const [fields, memories, items] = await Promise.all([
+      sharedFromPartner("love_profile_fields","field,value,mood_on"),
+      sharedFromPartner("love_memories","description,created_at").order("created_at",{ascending:false}),
+      sharedFromPartner("love_profile_items","kind,title,item_date,content").order("item_date",{ascending:false})
+    ]);
+    if (!content.isConnected || account !== active || view !== "partner") return;
+    if (fields.error || memories.error || items.error) throw new Error("Partnerprofil nicht verfügbar");
+    const photo = items.data.find(item => item.kind === "photo");
+    if (photo) {
+      const image = document.getElementById("partnerProfilePhoto");
+      image.src = photo.content;
+      image.hidden = false;
+    }
+    const day = dateKey(berlinCalendarDate());
+    const released = fields.data.filter(entry => currentProfileEntry(entry, day)).map(entry => {
+      const field = profileFields.find(([key]) => key === entry.field);
+      if (!field) return "";
+      const options = profileOptions(entry.field);
+      const value = options ? (options.find(([key]) => key === entry.value)?.[1] ?? (entry.field === "mood" ? entry.value : "")) : entry.value;
+      return value ? `<dt>${esc(field[1])}</dt><dd>${esc(value)}${entry.field === "toy" ? profileToyPhoto(entry.value) : ""}</dd>` : "";
+    }).join("");
+    const bios = items.data.filter(item => item.kind === "bio").map(item =>
+      `<details><summary>${esc(item.title)} · ${esc(item.item_date.split("-").reverse().join("."))}</summary><p>${esc(item.content)}</p></details>`).join("");
+    const sharedMemories = memories.data.map(item =>
+      `<details><summary>${esc(fmt(new Date(item.created_at)))}</summary><p>${esc(item.description)}</p></details>`).join("");
+    content.removeAttribute("role");
+    content.innerHTML = [
+      released ? `<section class="panel profile-shared"><h3>Profil &amp; Vorlieben</h3><dl>${released}</dl></section>` : "",
+      bios ? `<section class="panel"><h3>Sexographie</h3>${bios}</section>` : "",
+      sharedMemories ? `<section class="panel"><h3>Geilster Sex mit dir</h3>${sharedMemories}</section>` : ""
+    ].join("") || (photo ? "" : '<p class="muted">Noch keine Inhalte mit dir geteilt.</p>');
+  } catch {
+    if (content.isConnected) content.textContent = "Partnerprofil konnte nicht geladen werden. Tippe erneut auf den Avatar.";
+  }
 }
 
 function profileView() {
@@ -2725,7 +2787,7 @@ render();
         <span class="account-name">${esc(account.displayName)}</span>
       </div>
       <div id="partnerIdentity" class="account-identity" hidden>
-        <span id="partnerAvatar" class="account-avatar" role="img">🖤</span>
+        <button id="partnerAvatar" class="account-avatar" type="button" aria-label="Partnerprofil öffnen">🖤</button>
         <span class="account-name">Schatz</span>
       </div>
     </div>
@@ -2741,6 +2803,10 @@ render();
       history.replaceState(null, "", url);
       goView(destination);
     }
+    document.getElementById("partnerAvatar").addEventListener("click", () => {
+      goView("partner");
+      document.getElementById("partnerProfileHeading")?.focus({preventScroll:true});
+    });
     document.getElementById("profileButton").addEventListener("click", () => {
       goView("profil");
       document.getElementById("profileHeading")?.focus({preventScroll:true});
@@ -2773,7 +2839,7 @@ render();
     avatar.textContent = partner.partner_avatar ? profileAvatar(partner.partner_avatar) : "🖤";
     avatar.dataset.online = partner.partner_online == null ? "unknown" : String(partner.partner_online);
     avatar.title = status;
-    avatar.setAttribute("aria-label", `Schatz · ${status}`);
+    avatar.setAttribute("aria-label", `Partnerprofil öffnen · ${status}`);
   }
 
   async function refreshPartnerPresence() {
