@@ -439,6 +439,8 @@ body.app-signed-in::before {
 .profile-disclosure-content{padding:2px 18px 17px}
 </style>
 <style>
+.profile-area .profile-mood-field{border:0;margin:0;padding:0;min-inline-size:0}
+.profile-mood-field>legend{padding:0}
 .mood-picker{margin:4px 0 12px;border:1px solid #783346;border-radius:12px;background:#20131c;color:var(--gold)}
 .mood-picker>summary{cursor:pointer;padding:11px 13px;min-height:44px}
 .mood-choices{display:grid;gap:4px;padding:2px 6px 6px}
@@ -1264,7 +1266,7 @@ function profileFieldView([field, label, placeholder], entry) {
   } else {
     control = `<textarea name="${field}" aria-label="${label}" rows="2" maxlength="600" placeholder="${placeholder}">${esc(value)}</textarea>`;
   }
-  return `<fieldset><legend>${label}</legend>${control}
+  return `<fieldset${field === "mood" ? ' class="profile-mood-field"' : ""}><legend>${label}</legend>${control}
     ${field === "toy" ? `<div id="profileToyPhoto">${profileToyPhoto(value)}</div>` : ""}
     <label class="toy-option"><input type="checkbox" name="${field}_shared" ${entry?.shared ? "checked" : ""}>
       Mit meinem Schatz teilen</label></fieldset>`;
