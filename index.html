@@ -473,9 +473,9 @@ body.app-signed-in::before {
 
 <main id="appMain" style="display:none">
 <nav class="tabs" id="tabs">
-<button class="tab active" data-view="start">Startseite</button>
+<button class="tab active" data-view="kalender">Startseite</button>
 <button class="tab" data-view="kategorien">Kategorien</button>
-<button class="tab" data-view="kalender">Kalender</button><button class="tab" data-view="listen">Wunschlisten</button><button class="tab" data-view="favoriten">Favoriten</button><button class="tab" data-view="vorlieben">Vorlieben</button><button class="tab" data-view="eigene">Eigene Ideen</button>
+<button class="tab" data-view="listen">Wunschlisten</button><button class="tab" data-view="favoriten">Favoriten</button><button class="tab" data-view="vorlieben">Vorlieben</button><button class="tab" data-view="eigene">Eigene Ideen</button>
 <button class="tab" data-view="toys">Toys-Galerie</button>
 <button class="tab" data-view="spiele">Spiele</button>
 </nav>
@@ -495,7 +495,7 @@ let today = berlinCalendarDate();
 const start = new Date(2026, 10, 26);
 const categories=["Romantik","Zärtlichkeiten","Oral","Anal","BDSM","Spanking","Fesseln","Intensiv","Massage","Selbstbefriedigung","Outdoor"];
 let days = [], outdoorIdeas = [], state = null, account = null;
-let view = "start", selected = 0, monthOffset = 0;
+let view = "kalender", selected = 0, monthOffset = 0;
 let editingToyId = null;
 let editingPeriodId = null;
 let editingMemoryId = null;
@@ -582,7 +582,7 @@ function clearPrivateData() {
   editingToyId = editingPeriodId = editingMemoryId = null;
   days = [];
   outdoorIdeas = [];
-  view = "start";
+  view = "kalender";
   selected = monthOffset = 0;
   document.getElementById("app").replaceChildren();
 }
@@ -630,12 +630,6 @@ function ideaById(id){return allIdeas().find(x=>x.id===id)}
 
 const categoryIcons={"Romantik":"❤️","Zärtlichkeiten":"🥰","Oral":"👄","Anal":"🍑","BDSM":"⛓️","Spanking":"🔥","Fesseln":"🔗","Intensiv":"⚡","Massage":"💆","Selbstbefriedigung":"💋","Outdoor":"🌙"};
 function categoryTag(cat){return `<span class="tag">${categoryIcons[cat]||"•"} ${esc(cat)}</span>`;}
-function startView() {
-  return `<div class="home-hero">
-    <button class="primary" onclick="goView('kalender')">Zum gemeinsamen Kalender</button>
-  </div>`;
-}
-
 function categoriesView() {
   const cards = [
     ["❤️","Romantik","Zärtlichkeit und Nähe","kalender","Romantik"],
@@ -680,7 +674,6 @@ document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.datas
 let root=document.getElementById("app");
 const openPickers = new Set([...root.querySelectorAll("details[data-toy-picker][open]")].map(picker => picker.dataset.toyPicker));
 const focusedToy = document.activeElement?.matches("input[data-toy-choice]") ? document.activeElement : null;
-if(view==="start") root.innerHTML=startView();
 if(view==="kategorien") root.innerHTML=categoriesView();
 if(view==="kalender") root.innerHTML=calendarView();
 if(view==="listen") root.innerHTML=listView();
