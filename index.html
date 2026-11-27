@@ -446,6 +446,17 @@ body.app-signed-in::before {
 .mood-picker .mood-choices label:has(input:checked){background:#491a2d;color:var(--gold)}
 .mood-picker .mood-choices input[type=radio]{width:18px;height:18px;flex:none;margin:0;accent-color:#d9b887}
 </style>
+<style>
+.chat-messages{list-style:none;display:flex;flex-direction:column;gap:10px;padding:6px 3px;min-height:30px;max-height:48dvh;overflow:auto}
+.chat-messages li{align-self:flex-start;max-width:85%;min-width:0;padding:8px 12px;border:1px solid #6e2c3d;border-radius:12px;background:#24131d}
+.chat-messages .chat-own{align-self:flex-end;background:#40162a}
+.chat-meta{color:#d9b887;font-size:.75rem}
+.chat-text{white-space:pre-wrap;overflow-wrap:anywhere;color:#fff4f1}
+#chatEmoji{margin-top:12px;padding:10px;border:1px solid #783346;border-radius:12px;background:#20131c}
+#chatEmoji[hidden],#chatMore[hidden]{display:none}
+.chat-emoji-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(43px,1fr));gap:4px;max-height:210px;overflow:auto;margin-top:8px}
+.chat-emoji-grid button{min-height:44px;padding:5px;font-size:1.2rem}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -507,6 +518,7 @@ body.app-signed-in::before {
 <button class="tab" data-view="listen">Wunschlisten</button><button class="tab" data-view="favoriten">Favoriten</button><button class="tab" data-view="vorlieben">Vorlieben</button><button class="tab" data-view="eigene">Eigene Ideen</button>
 <button class="tab" data-view="toys">Toys-Galerie</button>
 <button class="tab" data-view="spiele">Spiele</button>
+<button class="tab" data-view="chat">Chat</button>
 </nav>
 <section id="app"></section>
 <footer id="appFooter"></footer>
@@ -604,6 +616,7 @@ function startPrivateData(userId, data) {
 }
 
 function clearPrivateData() {
+  closeChat();
   account = state = null;
   planDraft = null;
   gameCards = gameRound = null;
@@ -701,6 +714,11 @@ if (!state) return;
 today = berlinCalendarDate();
 document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
 let root=document.getElementById("app");
+if (view === "chat") {
+  showChat(root);
+  return;
+}
+closeChat();
 const openPickers = new Set([...root.querySelectorAll("details[data-toy-picker][open]")].map(picker => picker.dataset.toyPicker));
 const focusedToy = document.activeElement?.matches("input[data-toy-choice]") ? document.activeElement : null;
 if(view==="kategorien") root.innerHTML=categoriesView();
@@ -727,6 +745,178 @@ for (const picker of root.querySelectorAll("details[data-toy-picker]")) {
   }
 }
 }
+let chatScreen = null;
+let emojiCatalog = null;
+const chatMessageColumns = "id,user_id,body,created_at";
+const chatTime = new Intl.DateTimeFormat("de-DE", {dateStyle:"short", timeStyle:"short"});
+
+function closeChat() {
+  const previous = chatScreen;
+  chatScreen = null;
+  if (!previous) return;
+  clearInterval(previous.poll);
+  void authClient.removeChannel(previous.channel);
+}
+
+function paintChat(screen, keepPosition = false) {
+  const {list, rows, active} = screen;
+  const oldHeight = list.scrollHeight;
+  const oldTop = list.scrollTop;
+  const nearEnd = oldHeight - oldTop - list.clientHeight < 80;
+  const messages = [...rows.values()].sort((a,b) => a.id - b.id);
+  list.innerHTML = messages.map(message => {
+    const own = message.user_id === active.userId;
+    return `<li class="${own ? 'chat-own' : ''}">
+      <div class="chat-meta">${own ? 'Du' : 'Schatz'} · ${chatTime.format(new Date(message.created_at))}</div>
+      <div class="chat-text">${esc(message.body)}</div></li>`;
+  }).join("");
+  if (keepPosition) list.scrollTop = oldTop + list.scrollHeight - oldHeight;
+  else if (nearEnd) list.scrollTop = list.scrollHeight;
+  else list.scrollTop = oldTop;
+}
+
+async function loadChatMessages(screen, older = false) {
+  if (screen.loading || (older && !screen.canLoadOlder)) return;
+  screen.loading = true;
+  screen.more.disabled = true;
+  try {
+    let query = authClient.from("love_chat_messages").select(chatMessageColumns)
+      .eq("couple_id", screen.active.coupleId);
+    if (older) query = query.lt("id", Math.min(...screen.rows.keys()));
+    const {data,error} = await query.order("id",{ascending:false}).limit(50);
+    if (screen !== chatScreen) return;
+    if (error) throw error;
+    const firstLoad = !screen.loaded;
+    const previousCount = screen.rows.size;
+    for (const row of data) screen.rows.set(Number(row.id),row);
+    if (firstLoad || older) screen.canLoadOlder = data.length === 50;
+    screen.loaded = true;
+    screen.more.hidden = !screen.canLoadOlder;
+    if (firstLoad || screen.rows.size !== previousCount) paintChat(screen, older);
+    screen.connection.textContent = screen.rows.size ? "" : "Noch keine Nachrichten.";
+  } catch {
+    if (screen === chatScreen) screen.connection.textContent = "Nachrichten konnten gerade nicht geladen werden.";
+  } finally {
+    screen.loading = false;
+    screen.more.disabled = false;
+  }
+}
+
+async function sendChatMessage(event, screen) {
+  event.preventDefault();
+  const body = screen.input.value.trim();
+  if (!body || screen.send.disabled) return;
+  screen.send.disabled = true;
+  screen.input.readOnly = true;
+  screen.status.textContent = "Wird gesendet …";
+  try {
+    const {data,error} = await authClient.from("love_chat_messages")
+      .insert({couple_id:screen.active.coupleId,body}).select(chatMessageColumns).single();
+    if (error) throw error;
+    if (screen !== chatScreen) return;
+    screen.rows.set(Number(data.id),data);
+    screen.input.value = "";
+    screen.status.textContent = "Gesendet.";
+    screen.connection.textContent = "";
+    paintChat(screen);
+    screen.list.scrollTop = screen.list.scrollHeight;
+  } catch {
+    if (screen === chatScreen) screen.status.textContent = "Senden fehlgeschlagen. Deine Eingabe ist noch da.";
+  } finally {
+    screen.send.disabled = false;
+    screen.input.readOnly = false;
+  }
+}
+
+async function openChatEmoji(screen) {
+  const {picker, emojiGroup, emojiGrid} = screen;
+  picker.hidden = !picker.hidden;
+  screen.emojiButton.setAttribute("aria-expanded",String(!picker.hidden));
+  if (picker.hidden || screen.emojiLoaded || screen.emojiLoading) return;
+  screen.emojiLoading = true;
+  try {
+    if (!emojiCatalog) {
+      const response = await fetch("./chat-emoji.json");
+      if (!response.ok) throw new Error("Emoji catalog unavailable");
+      emojiCatalog = await response.json();
+    }
+    if (screen !== chatScreen) return;
+    emojiGroup.replaceChildren(...Object.keys(emojiCatalog).map(group => new Option(group,group)));
+    const showGroup = () => {
+      emojiGrid.replaceChildren(...emojiCatalog[emojiGroup.value].map(glyph => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = glyph;
+        return button;
+      }));
+    };
+    emojiGroup.addEventListener("change",showGroup);
+    showGroup();
+    screen.emojiLoaded = true;
+  } catch {
+    emojiGrid.textContent = "Die Emoji-Auswahl konnte nicht geladen werden. Tippe noch einmal auf das Smiley.";
+  } finally {
+    screen.emojiLoading = false;
+  }
+}
+
+function showChat(root) {
+  if (chatScreen) return;
+  root.innerHTML = `<section class="panel love-chat">
+    <h2>Unser Chat</h2>
+    <button type="button" id="chatMore" hidden>Ältere Nachrichten laden</button>
+    <p id="chatConnection" class="muted" role="status">Nachrichten werden geladen …</p>
+    <ol id="chatMessages" class="chat-messages" aria-label="Nachrichten"></ol>
+    <form id="chatComposer">
+      <label for="chatInput">Nachricht</label>
+      <textarea id="chatInput" rows="2" maxlength="2000" required></textarea>
+      <div class="actions">
+        <button type="button" id="chatEmojiButton" aria-label="Emoji auswählen" aria-controls="chatEmoji" aria-expanded="false">😊</button>
+        <button type="submit" class="primary">Senden</button>
+      </div>
+      <div id="chatEmoji" hidden>
+        <label for="chatEmojiGroup">Emoji-Kategorie</label><select id="chatEmojiGroup"></select>
+        <div id="chatEmojiGrid" class="chat-emoji-grid"></div>
+      </div>
+      <p id="chatStatus" role="status"></p>
+    </form>
+  </section>`;
+  const form = root.querySelector("#chatComposer");
+  const screen = {
+    active:account, rows:new Map(), list:root.querySelector("#chatMessages"), input:form.querySelector("#chatInput"),
+    send:form.querySelector("button[type=submit]"), more:root.querySelector("#chatMore"),
+    connection:root.querySelector("#chatConnection"), status:form.querySelector("#chatStatus"),
+    picker:form.querySelector("#chatEmoji"), emojiButton:form.querySelector("#chatEmojiButton"),
+    emojiGroup:form.querySelector("#chatEmojiGroup"), emojiGrid:form.querySelector("#chatEmojiGrid")
+  };
+  chatScreen = screen;
+  form.addEventListener("submit",event => void sendChatMessage(event,screen));
+  screen.more.addEventListener("click",() => void loadChatMessages(screen,true));
+  screen.emojiButton.addEventListener("click",() => void openChatEmoji(screen));
+  screen.emojiGrid.addEventListener("click",event => {
+    const button = event.target.closest("button");
+    if (!button || screen.input.readOnly) return;
+    const {value, selectionStart, selectionEnd, maxLength} = screen.input;
+    const glyph = button.textContent;
+    if (value.length - (selectionEnd - selectionStart) + glyph.length > maxLength) return;
+    screen.input.setRangeText(glyph,selectionStart,selectionEnd,"end");
+  });
+  screen.channel = authClient.channel("love-chat-" + crypto.randomUUID()).on("postgres_changes",{
+    event:"INSERT", schema:"public", table:"love_chat_messages", filter:"couple_id=eq." + account.coupleId
+  },({new:row}) => {
+    if (chatScreen !== screen) return;
+    screen.rows.set(Number(row.id),row);
+    screen.connection.textContent = "";
+    paintChat(screen);
+  }).subscribe(status => {
+    if (status === "SUBSCRIBED" && chatScreen === screen) void loadChatMessages(screen);
+  });
+  void loadChatMessages(screen);
+  screen.poll = setInterval(() => {
+    if (!document.hidden && chatScreen === screen) void loadChatMessages(screen);
+  },12000);
+}
+
 const games = {
   truth: ["Wahrheit oder Pflicht", "😈", "Wähle eine Frage oder eine Aufgabe. Ihr seid abwechselnd dran."],
   either: ["Lieber dies oder das?", "💋", "Ihr wählt beide spontan. Wenn ihr verschieden antwortet, erzählt euch, was euch daran reizt."],
@@ -2088,7 +2278,7 @@ render();
     updateAvatarConnection();
     startPartnerPresence();
     const destination = new URLSearchParams(location.search).get("push");
-    if (destination === "kalender" || destination === "toys") {
+    if (destination === "kalender" || destination === "toys" || destination === "chat") {
       const url = new URL(location.href);
       url.searchParams.delete("push");
       history.replaceState(null, "", url);

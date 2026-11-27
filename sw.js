@@ -19,7 +19,7 @@ self.addEventListener('push', event => {
     message = null;
   }
   const destination = message?.destination;
-  if (destination !== 'kalender' && destination !== 'toys') return;
+  if (!['kalender', 'toys', 'chat'].includes(destination)) return;
   event.waitUntil(self.registration.showNotification('Neues in Love and Pain', {
     tag: message.id,
     data: { destination }
@@ -29,7 +29,7 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const destination = event.notification.data?.destination;
-  if (destination !== 'kalender' && destination !== 'toys') return;
+  if (!['kalender', 'toys', 'chat'].includes(destination)) return;
   const url = new URL(self.registration.scope);
   url.searchParams.set('push', destination);
   event.waitUntil((async () => {
