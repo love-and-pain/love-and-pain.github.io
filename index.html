@@ -438,6 +438,14 @@ body.app-signed-in::before {
 .profile-disclosure[open]>summary::after{transform:rotate(225deg)}
 .profile-disclosure-content{padding:2px 18px 17px}
 </style>
+<style>
+.mood-picker{margin:4px 0 12px;border:1px solid #783346;border-radius:12px;background:#20131c;color:var(--gold)}
+.mood-picker>summary{cursor:pointer;padding:11px 13px;min-height:44px}
+.mood-choices{display:grid;gap:4px;padding:2px 6px 6px}
+.mood-picker .mood-choices label{display:flex;align-items:center;gap:10px;padding:7px 9px;margin:0;min-height:44px;border-radius:8px;color:#fff4f1;cursor:pointer}
+.mood-picker .mood-choices label:has(input:checked){background:#491a2d;color:var(--gold)}
+.mood-picker .mood-choices input[type=radio]{width:18px;height:18px;flex:none;margin:0;accent-color:#d9b887}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -884,7 +892,7 @@ const profileFields = [
 ];
 const moodChoices = [
   "Zärtlich", "Verspielt", "Intensiv", "Heute lieber Pause",
-  "Verlangen", "Experimentierfreudig", "Nur nach Vertrauen / Absprache", "Hard Limit (Tabu)"
+  "Verlangen", "Experimentierfreudig", "Nur nach Vertrauen / Absprache", "Keine Limits"
 ];
 
 function profileOptions(field) {
@@ -905,7 +913,14 @@ function profileFieldView([field, label, placeholder], entry) {
   const value = entry?.value || "";
   const options = profileOptions(field);
   let control;
-  if (options) {
+  if (field === "mood") {
+    control = `<details class="mood-picker">
+      <summary>${esc(value || placeholder)}</summary>
+      <div class="mood-choices">${[["", "Keine Stimmung ausgewählt"], ...options].map(([key, name]) =>
+        `<label><input type="radio" name="mood" value="${esc(key)}" ${key === value ? "checked" : ""}>
+          <span>${esc(name)}</span></label>`).join("")}</div>
+    </details>`;
+  } else if (options) {
     const selected = options.some(([key]) => key === value);
     const unavailable = value && !selected
       ? `<option value="${esc(value)}" selected>Auswahl derzeit nicht verfügbar</option>` : "";
@@ -922,6 +937,12 @@ function profileFieldView([field, label, placeholder], entry) {
     ${field === "toy" ? `<div id="profileToyPhoto">${profileToyPhoto(value)}</div>` : ""}
     <label class="toy-option"><input type="checkbox" name="${field}_shared" ${entry?.shared ? "checked" : ""}>
       Mit meinem Schatz teilen</label></fieldset>`;
+}
+
+function updateMoodPreview(radio) {
+  const mood = radio.value;
+  radio.closest(".mood-picker").querySelector("summary").textContent = mood || "Stimmung wählen";
+  document.getElementById("profileMood").textContent = "Stimmung: " + (mood || "Keine ausgewählt");
 }
 
 function profileToyPhoto(id) {
@@ -1058,7 +1079,7 @@ function profileView() {
       </div>
       <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
     </div>
-    <form onsubmit="saveProfileFields(event)" onchange="if (event.target.name === 'mood') document.getElementById('profileMood').textContent = 'Stimmung: ' + (event.target.value || 'Keine ausgewählt')">
+    <form onsubmit="saveProfileFields(event)" onchange="if (event.target.name === 'mood') updateMoodPreview(event.target)">
       <details class="panel profile-disclosure" id="profile-options">
       <summary>Profil &amp; Stimmung</summary>
       <div class="profile-disclosure-content">
