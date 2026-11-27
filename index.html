@@ -1225,7 +1225,7 @@ const profileFields = [
 ];
 const moodChoices = [
   "Zärtlich", "Verspielt", "Intensiv", "Heute lieber Pause",
-  "Verlangen", "Experimentierfreudig", "Nur nach Vertrauen / Absprache", "Keine Limits"
+  "Verlangen", "Experimentierfreudig", "Keine Limits"
 ];
 
 function profileOptions(field) {
@@ -1249,7 +1249,7 @@ function profileFieldView([field, label, placeholder], entry) {
   if (field === "mood") {
     control = `<details class="mood-picker">
       <summary>${esc(value || placeholder)}</summary>
-      <div class="mood-choices">${[["", "Keine Stimmung ausgewählt"], ...options].map(([key, name]) =>
+      <div class="mood-choices">${[["", "Keine Stimmung ausgewählt"], ...options, ...(value && !options.some(([key]) => key === value) ? [[value, value + " (bisherige Auswahl)"]] : [])].map(([key, name]) =>
         `<label><input type="radio" name="mood" value="${esc(key)}" ${key === value ? "checked" : ""}>
           <span>${esc(name)}</span></label>`).join("")}</div>
     </details>`;
@@ -1389,7 +1389,7 @@ function profileView() {
     const field = profileFields.find(([key]) => key === entry.field);
     if (!field) return "";
     const options = profileOptions(entry.field);
-    const value = options ? options.find(([key]) => key === entry.value)?.[1] : entry.value;
+    const value = options ? (options.find(([key]) => key === entry.value)?.[1] ?? (entry.field === "mood" ? entry.value : "")) : entry.value;
     return value ? `<dt>${field[1]}</dt><dd>${esc(value)}${entry.field === "toy" ? profileToyPhoto(entry.value) : ""}</dd>` : "";
   }).join("");
   const mood = currentProfileEntry(own.find(entry => entry.field === "mood"), day)?.value;
