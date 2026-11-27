@@ -882,7 +882,10 @@ const profileFields = [
   ["wishes", "Würde ich gern ausprobieren", "Was möchtest du ausprobieren?"],
   ["boundaries", "Heute oder generell lieber nicht", "Was passt für dich gerade nicht?"]
 ];
-const moodChoices = ["Zärtlich", "Verspielt", "Intensiv", "Heute lieber Pause"];
+const moodChoices = [
+  "Zärtlich", "Verspielt", "Intensiv", "Heute lieber Pause",
+  "Verlangen", "Experimentierfreudig", "Nur nach Vertrauen / Absprache", "Hard Limit (Tabu)"
+];
 
 function profileOptions(field) {
   if (field === "toy") return state.toys.map(toy => [toy.id, toy.name]);
