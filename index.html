@@ -478,6 +478,22 @@ body.app-signed-in::before {
 #chatFullImage{display:block;max-width:100%;max-height:67dvh;margin:0 auto 12px;object-fit:contain}
 .chat-messages button{margin:5px 4px 0 0}
 </style>
+<style>
+.profile-hero-row{display:grid;grid-template-columns:58px minmax(0,1fr) 58px;gap:8px;text-align:center}
+.profile-hero-row h2{font-size:clamp(1.25rem,5.8vw,2.5rem)}
+.profile-mood-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#profilePhotoButton{justify-self:end;min-width:45px;width:45px;height:45px;border-radius:50%;padding:0;overflow:hidden;color:var(--gold)}
+#profileOwnPhoto{width:100%;height:100%;object-fit:cover;display:block}
+#profileOwnPhoto[hidden],#profilePhotoForm[hidden],#profileBioForm[hidden],#profilePartnerPhotoArea[hidden]{display:none}
+#profilePhotoForm,#profileBioTemplates,#profileBioList details{margin-top:10px;padding:10px;border:1px solid #783346;border-radius:12px;background:#191018}
+#profileBioTemplates summary,#profileBioList summary{cursor:pointer;color:var(--gold);overflow-wrap:anywhere}
+.profile-bio-templates{display:grid;gap:6px;margin-top:8px}
+.profile-bio-templates button{text-align:left;color:var(--gold)}
+#profileBioForm{margin-top:15px}
+#profileBioForm label:not(.toy-option){display:grid;gap:5px;margin-bottom:10px}
+#profileBioList p{white-space:pre-wrap;overflow-wrap:anywhere}
+#profilePartnerPhoto{width:58px;height:58px;object-fit:cover;border-radius:50%;margin-bottom:10px}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -762,6 +778,7 @@ if (view === "profil") {
   if (menuOpen) document.getElementById("profileMenuToggle").click();
   if (openSection) openProfileSection(openSection, false);
   void refreshPushToggle();
+  mountProfileItems();
 }
 if(view==="spiele") root.innerHTML=gamesView();
 for (const picker of root.querySelectorAll("details[data-toy-picker]")) {
@@ -1393,6 +1410,219 @@ function openProfileSection(id, moveFocus = true) {
   if (show && moveFocus) section.focus();
 }
 
+const bioTemplates = [
+  ["Meine Geschichte", "Was hat sich über die Jahre bei mir verändert?"],
+  ["Was ich an uns mag", "Wann fühle ich mich dir besonders nah?"],
+  ["Was ich über mich entdeckt habe", "Was hat mich an mir selbst überrascht?"],
+  ["Was ich gern ausprobieren würde", "Was macht mich neugierig?"],
+  ["Was mir wichtig ist", "Was brauche ich, um mich wohlzufühlen?"],
+  ["Meine Grenzen", "Was passt gerade oder grundsätzlich nicht für mich?"],
+  ["Eigener Eintrag", "Was möchtest du aufschreiben?"]
+];
+
+function mountProfileItems() {
+  const owner = account;
+  const el = id => document.getElementById(id);
+  const bio = el("profile-biography");
+  const photoForm = el("profilePhotoForm");
+  const bioForm = el("profileBioForm");
+  const bioList = el("profileBioList");
+  const photoButton = el("profilePhotoButton");
+  const photoStatus = el("profilePhotoStatus");
+  const bioStatus = el("profileBioStatus");
+  const ownPhoto = el("profileOwnPhoto");
+  const partnerPhoto = el("profilePartnerPhoto");
+  const fileInput = el("profilePhotoFile");
+  const photoShare = el("profilePhotoShare");
+  const photoRemove = el("profilePhotoRemove");
+  const templateMenu = el("profileBioTemplates");
+  const newEntry = el("profileBioNew");
+  let items = [];
+  let draftPhoto = "";
+  let busy = false;
+  let ready = false;
+  let entryId = null;
+
+  function current() {
+    return account === owner && bio.isConnected;
+  }
+
+  function ownPhotoItem() {
+    return items.find(item => item.kind === "photo" && item.user_id === owner.userId);
+  }
+
+  function showPhoto(image, value) {
+    image.hidden = !value;
+    if (value) image.src = value;
+    else image.removeAttribute("src");
+  }
+
+  function refreshPhotos() {
+    const own = ownPhotoItem();
+    const partner = items.find(item => item.kind === "photo" && item.user_id !== owner.userId);
+    showPhoto(ownPhoto, draftPhoto || own?.content);
+    showPhoto(partnerPhoto, partner?.content);
+    el("profilePhotoIcon").hidden = !ownPhoto.hidden;
+    el("profilePartnerPhotoArea").hidden = !partner;
+    photoShare.checked = own?.shared ?? false;
+    photoRemove.hidden = !own;
+    el("profileChoosePhoto").textContent = own ? "Foto ändern" : "Foto auswählen";
+  }
+
+  function openEntry(item, template = null) {
+    entryId = item?.id ?? crypto.randomUUID();
+    bioForm.elements.title.value = item?.title ?? (template && template[0] !== "Eigener Eintrag" ? template[0] : "");
+    bioForm.elements.item_date.value = item?.item_date ?? dateKey(berlinCalendarDate());
+    bioForm.elements.content.value = item?.content ?? "";
+    bioForm.elements.content.placeholder = template?.[1] ?? "";
+    bioForm.elements.shared.checked = item?.shared ?? false;
+    bioForm.hidden = false;
+    templateMenu.open = false;
+    bioForm.elements.title.focus();
+  }
+
+  function refreshEntries() {
+    const entries = items.filter(item => item.kind === "bio")
+      .sort((a,b) => b.item_date.localeCompare(a.item_date) || a.title.localeCompare(b.title,"de"));
+    bioList.replaceChildren(...entries.map(item => {
+      const card = document.createElement("details");
+      const title = document.createElement("summary");
+      const description = document.createElement("p");
+      const visibility = document.createElement("p");
+      const mine = item.user_id === owner.userId;
+      title.textContent = item.title + " · " + item.item_date.split("-").reverse().join(".");
+      description.textContent = item.content;
+      visibility.className = "muted";
+      visibility.textContent = mine ? (item.shared ? "Mit meinem Schatz geteilt" : "Privat") : "Von meinem Schatz geteilt";
+      card.append(title,description,visibility);
+      if (mine) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.textContent = "Bearbeiten";
+        edit.onclick = () => openEntry(item);
+        card.append(edit);
+      }
+      return card;
+    }));
+    if (!entries.length) bioList.textContent = "Noch keine Einträge.";
+  }
+
+  async function writeItem(status, operation, onSuccess) {
+    if (busy || !ready || !current()) return;
+    busy = true;
+    status.textContent = "Wird gespeichert …";
+    try {
+      const {data,error} = await operation();
+      if (error) throw error;
+      if (!current()) return;
+      onSuccess(data);
+      status.textContent = "Gespeichert.";
+    } catch {
+      if (current()) status.textContent = "Speichern fehlgeschlagen. Bitte versuche es erneut.";
+    } finally {
+      busy = false;
+    }
+  }
+
+  function saveItemRow(row) {
+    return authClient.from("love_profile_items").upsert({
+      ...row, user_id:owner.userId, couple_id:owner.coupleId
+    }).select("id,user_id,kind,title,item_date,content,shared").single();
+  }
+
+  function updateLocal(item) {
+    items = [...items.filter(row => row.id !== item.id),item];
+  }
+
+  photoButton.onclick = () => {
+    photoForm.hidden = !photoForm.hidden;
+    photoButton.setAttribute("aria-expanded", String(!photoForm.hidden));
+  };
+  el("profileChoosePhoto").onclick = () => { if (ready && !busy) fileInput.click(); };
+  fileInput.onchange = async () => {
+    const file = fileInput.files[0];
+    fileInput.value = "";
+    if (!file || busy || !ready) return;
+    busy = true;
+    photoStatus.textContent = "Foto wird vorbereitet …";
+    try {
+      const image = await resizeSharedPhoto(file);
+      if (!current()) return;
+      draftPhoto = image;
+      showPhoto(ownPhoto,image);
+      el("profilePhotoIcon").hidden = true;
+      photoShare.checked = false;
+      photoStatus.textContent = "Vorschau. Tippe auf „Foto speichern“.";
+    } catch {
+      if (current()) photoStatus.textContent = "Das Foto konnte nicht geöffnet werden.";
+    } finally {
+      busy = false;
+    }
+  };
+  photoForm.onsubmit = event => {
+    event.preventDefault();
+    const content = draftPhoto || ownPhotoItem()?.content;
+    if (!content) {
+      photoStatus.textContent = "Bitte wähle zuerst ein Foto.";
+      return;
+    }
+    void writeItem(photoStatus, () => saveItemRow({
+      id:owner.userId, kind:"photo", content, shared:photoShare.checked
+    }), item => {
+      draftPhoto = "";
+      updateLocal(item);
+      refreshPhotos();
+    });
+  };
+  photoRemove.onclick = () => {
+    if (!ready || busy || !confirm("Profilbild entfernen?")) return;
+    void writeItem(photoStatus, () => authClient.from("love_profile_items").delete()
+      .eq("id",owner.userId).eq("kind","photo").eq("couple_id",owner.coupleId), () => {
+      draftPhoto = "";
+      items = items.filter(item => item.id !== owner.userId);
+      refreshPhotos();
+    });
+  };
+  newEntry.onclick = () => { if (ready && !busy) templateMenu.open = !templateMenu.open; };
+  bioTemplates.forEach((template,index) => {
+    el("profileBioTemplate" + index).onclick = () => { if (ready && !busy) openEntry(null,template); };
+  });
+  el("profileBioCancel").onclick = () => { if (!busy) bioForm.hidden = true; };
+  bioForm.onsubmit = event => {
+    event.preventDefault();
+    const title = bioForm.elements.title.value.trim();
+    const content = bioForm.elements.content.value.trim();
+    const item_date = bioForm.elements.item_date.value;
+    if (!title || !content || !item_date) {
+      bioStatus.textContent = "Bitte fülle Titel, Datum und Text aus.";
+      return;
+    }
+    void writeItem(bioStatus, () => saveItemRow({
+      id:entryId, kind:"bio", title, content, item_date, shared:bioForm.elements.shared.checked
+    }), item => {
+      updateLocal(item);
+      bioForm.hidden = true;
+      refreshEntries();
+    });
+  };
+
+  void (async () => {
+    try {
+      const {data,error} = await authClient.from("love_profile_items")
+        .select("id,user_id,kind,title,item_date,content,shared").eq("couple_id",owner.coupleId);
+      if (error) throw error;
+      if (!current()) return;
+      items = data;
+      ready = true;
+      refreshPhotos();
+      refreshEntries();
+      photoStatus.textContent = bioStatus.textContent = "";
+    } catch {
+      if (current()) photoStatus.textContent = bioStatus.textContent = "Inhalte konnten nicht geladen werden. Öffne „Mein Bereich“ erneut.";
+    }
+  })();
+}
+
 function profileView() {
   const day = dateKey(today);
   const own = state.profileFields.filter(entry => entry.user_id === account.userId);
@@ -1411,12 +1641,24 @@ function profileView() {
       <div class="profile-hero-row">
         <div class="account-avatar profile-avatar" id="profileAvatarPreview" aria-hidden="true">${account.avatar}</div>
         <div><h2 id="profileHeading" tabindex="-1">Mein Bereich</h2><span class="profile-display-name">${esc(account.displayName)}</span></div>
+        <button type="button" id="profilePhotoButton" aria-label="Profilbild" aria-controls="profilePhotoForm" aria-expanded="false"><span id="profilePhotoIcon">📷</span><img id="profileOwnPhoto" alt="" hidden></button>
+      </div>
+      <div class="profile-mood-row">
+        <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
         <button type="button" id="profileMenuToggle" aria-label="Profilmenü" aria-expanded="false" aria-controls="profileSectionMenu" onclick="const menu = document.getElementById('profileSectionMenu'); menu.hidden = !menu.hidden; this.setAttribute('aria-expanded', String(!menu.hidden))">☰</button>
       </div>
-      <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
+      <form id="profilePhotoForm" hidden>
+        <input id="profilePhotoFile" type="file" accept="image/*" hidden>
+        <button type="button" id="profileChoosePhoto">Foto auswählen</button>
+        <button type="button" id="profilePhotoRemove" hidden>Foto entfernen</button>
+        <label class="toy-option"><input type="checkbox" id="profilePhotoShare"> Mit meinem Schatz teilen</label>
+        <button class="primary" type="submit">Foto speichern</button>
+        <p id="profilePhotoStatus" role="status">Wird geladen …</p>
+      </form>
       <nav id="profileSectionMenu" aria-label="Profilabschnitte" hidden>
         <button type="button" aria-controls="profile-options" aria-expanded="false" onclick="openProfileSection('profile-options')">Profil &amp; Stimmung</button>
         <button type="button" aria-controls="profile-preferences" aria-expanded="false" onclick="openProfileSection('profile-preferences')">Vorlieben</button>
+        <button type="button" aria-controls="profile-biography" aria-expanded="false" onclick="openProfileSection('profile-biography')">Sexographie</button>
         <button type="button" aria-controls="profile-memories" aria-expanded="false" onclick="openProfileSection('profile-memories')">Geilster Sex mit dir</button>
         <button type="button" aria-controls="profile-notifications" aria-expanded="false" onclick="openProfileSection('profile-notifications')">Benachrichtigungen</button>
       </nav>
@@ -1440,6 +1682,26 @@ function profileView() {
         <button type="submit" class="primary">Vorlieben speichern</button>
         <p data-profile-status role="status"></p>
       </form>
+    </section>
+    <section class="panel" data-profile-section id="profile-biography" aria-label="Sexographie" tabindex="-1" hidden>
+      <h2>Sexographie</h2>
+      <div id="profilePartnerPhotoArea" hidden><p>Profilbild von meinem Schatz</p><img id="profilePartnerPhoto" alt="Profilbild von meinem Schatz"></div>
+      <button type="button" class="primary" id="profileBioNew" aria-controls="profileBioTemplates">+ Neuer Eintrag</button>
+      <details id="profileBioTemplates">
+        <summary>Vorlage auswählen</summary>
+        <div class="profile-bio-templates">${bioTemplates.map(([title],index) =>
+          `<button type="button" id="profileBioTemplate${index}">${esc(title)}</button>`).join("")}</div>
+      </details>
+      <form id="profileBioForm" hidden>
+        <label>Titel<input name="title" maxlength="120" required></label>
+        <label>Datum<input name="item_date" type="date" required></label>
+        <label>Dein Text<textarea name="content" maxlength="6000" required></textarea></label>
+        <label class="toy-option"><input type="checkbox" name="shared"> Mit meinem Schatz teilen</label>
+        <button type="submit" class="primary">Eintrag speichern</button>
+        <button type="button" id="profileBioCancel">Abbrechen</button>
+      </form>
+      <p id="profileBioStatus" role="status">Wird geladen …</p>
+      <div id="profileBioList"></div>
     </section>
     <section class="panel profile-memories" data-profile-section id="profile-memories" aria-label="Geilster Sex mit dir" tabindex="-1" hidden>
       <div id="profileMemories">${memoriesView()}</div>
