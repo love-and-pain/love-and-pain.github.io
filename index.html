@@ -457,6 +457,24 @@ body.app-signed-in::before {
 .chat-emoji-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(43px,1fr));gap:4px;max-height:210px;overflow:auto;margin-top:8px}
 .chat-emoji-grid button{min-height:44px;padding:5px;font-size:1.2rem}
 </style>
+<style>
+.chat-emoji-categories{margin-bottom:9px;border:1px solid #783346;border-radius:10px;color:#d9b887}
+.chat-emoji-categories summary{padding:10px;cursor:pointer}
+#chatEmojiGroup{max-height:200px;overflow:auto;padding:2px 5px 5px}
+#chatEmojiGroup label{display:flex;gap:10px;align-items:center;margin:0;padding:8px;min-height:42px;color:#fff4f1;border-radius:7px;cursor:pointer}
+#chatEmojiGroup label:has(:checked){background:#491a2d;color:#d9b887}
+#chatEmojiGroup input{width:17px;height:17px;margin:0;accent-color:#d9b887}
+.chat-file-button{position:relative;display:inline-grid;place-items:center;min-height:44px;margin:0;padding:7px 12px;border:1px solid #783346;border-radius:10px;color:#d9b887}
+.chat-file-button input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.chat-file-button:focus-within{outline:2px solid #d9b887}
+#chatAttachment{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0}
+#chatAttachment[hidden],#chatFullImage:not([src]){display:none}
+#chatPreview{max-width:150px;max-height:130px;border-radius:9px}
+.chat-image-dialog{width:min(94vw,700px);border:1px solid #783346;border-radius:16px;background:#20131c;color:#fff4f1}
+.chat-image-dialog::backdrop{background:#000c}
+#chatFullImage{display:block;max-width:100%;max-height:67dvh;margin:0 auto 12px;object-fit:contain}
+.chat-messages button{margin:5px 4px 0 0}
+</style>
 </head>
 <body>
 <header id="siteHeader"><div class="brand">Love <em>and</em> Pain</div><div class="sub">ZEIT FÜR UNS ZWEI</div></header>
@@ -747,7 +765,8 @@ for (const picker of root.querySelectorAll("details[data-toy-picker]")) {
 }
 let chatScreen = null;
 let emojiCatalog = null;
-const chatMessageColumns = "id,user_id,body,created_at";
+const chatMessageColumns = "id,user_id,body,kind,created_at";
+const chatImageLifetime = 30 * 24 * 60 * 60 * 1000;
 const chatTime = new Intl.DateTimeFormat("de-DE", {dateStyle:"short", timeStyle:"short"});
 
 function closeChat() {
@@ -766,9 +785,18 @@ function paintChat(screen, keepPosition = false) {
   const messages = [...rows.values()].sort((a,b) => a.id - b.id);
   list.innerHTML = messages.map(message => {
     const own = message.user_id === active.userId;
+    const id = Number(message.id);
+    const isImage = message.kind === "image";
+    const expired = isImage && Date.now() - Date.parse(message.created_at) >= chatImageLifetime;
+    const removed = screen.removedImages.has(id);
+    const attachment = isImage ? (expired || removed
+      ? `<p class="muted">${removed ? "Bild gelöscht." : "Bild abgelaufen."}</p>`
+      : `<button type="button" data-chat-image="${id}">🖼️ Bild ansehen</button>
+      ${own ? `<button type="button" class="ghost" data-chat-delete="${id}">Bild löschen</button>` : ""}`) : "";
     return `<li class="${own ? 'chat-own' : ''}">
       <div class="chat-meta">${own ? 'Du' : 'Schatz'} · ${chatTime.format(new Date(message.created_at))}</div>
-      <div class="chat-text">${esc(message.body)}</div></li>`;
+      ${isImage && message.body === "Bild" ? "" : `<div class="chat-text">${esc(message.body)}</div>`}
+      ${attachment}</li>`;
   }).join("");
   if (keepPosition) list.scrollTop = oldTop + list.scrollHeight - oldHeight;
   else if (nearEnd) list.scrollTop = list.scrollHeight;
@@ -805,16 +833,26 @@ async function loadChatMessages(screen, older = false) {
 async function sendChatMessage(event, screen) {
   event.preventDefault();
   const body = screen.input.value.trim();
-  if (!body || screen.send.disabled) return;
+  if ((!body && !screen.photo) || screen.send.disabled) return;
   screen.send.disabled = true;
   screen.input.readOnly = true;
+  screen.file.disabled = screen.remove.disabled = true;
   screen.status.textContent = "Wird gesendet …";
   try {
-    const {data,error} = await authClient.from("love_chat_messages")
-      .insert({couple_id:screen.active.coupleId,body}).select(chatMessageColumns).single();
-    if (error) throw error;
+    const result = screen.photo
+      ? await authClient.rpc("love_send_chat_image", {
+        p_couple_id: screen.active.coupleId, p_jpeg: screen.photo.split(",")[1], p_caption: body
+      })
+      : await authClient.from("love_chat_messages")
+        .insert({couple_id:screen.active.coupleId,body}).select(chatMessageColumns).single();
+    if (result.error) throw result.error;
     if (screen !== chatScreen) return;
-    screen.rows.set(Number(data.id),data);
+    if (screen.photo) {
+      clearChatAttachment(screen);
+      void loadChatMessages(screen);
+    } else {
+      screen.rows.set(Number(result.data.id),result.data);
+    }
     screen.input.value = "";
     screen.status.textContent = "Gesendet.";
     screen.connection.textContent = "";
@@ -825,6 +863,7 @@ async function sendChatMessage(event, screen) {
   } finally {
     screen.send.disabled = false;
     screen.input.readOnly = false;
+    screen.file.disabled = screen.remove.disabled = false;
   }
 }
 
@@ -836,27 +875,100 @@ async function openChatEmoji(screen) {
   screen.emojiLoading = true;
   try {
     if (!emojiCatalog) {
-      const response = await fetch("./chat-emoji.json");
+      const response = await fetch("./chat-emoji.json", {cache:"no-cache"});
       if (!response.ok) throw new Error("Emoji catalog unavailable");
       emojiCatalog = await response.json();
     }
     if (screen !== chatScreen) return;
-    emojiGroup.replaceChildren(...Object.keys(emojiCatalog).map(group => new Option(group,group)));
-    const showGroup = () => {
-      emojiGrid.replaceChildren(...emojiCatalog[emojiGroup.value].map(glyph => {
+    const groups = Object.keys(emojiCatalog);
+    const showGroup = group => {
+      emojiGrid.replaceChildren(...emojiCatalog[group].map(glyph => {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = glyph;
         return button;
       }));
     };
-    emojiGroup.addEventListener("change",showGroup);
-    showGroup();
+    emojiGroup.replaceChildren(...groups.map((group,index) => {
+      const label = document.createElement("label");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "chatEmojiCategory";
+      radio.checked = index === 0;
+      radio.addEventListener("change", () => showGroup(group));
+      label.append(radio,group);
+      return label;
+    }));
+    showGroup(groups[0]);
     screen.emojiLoaded = true;
   } catch {
     emojiGrid.textContent = "Die Emoji-Auswahl konnte nicht geladen werden. Tippe noch einmal auf das Smiley.";
   } finally {
     screen.emojiLoading = false;
+  }
+}
+
+async function previewChatAttachment(screen) {
+  const file = screen.file.files[0];
+  screen.file.value = "";
+  if (!file) return;
+  const attempt = ++screen.imageAttempt;
+  screen.send.disabled = screen.remove.disabled = true;
+  screen.status.textContent = "Bild wird vorbereitet …";
+  try {
+    const photo = await resizeSharedPhoto(file);
+    if (screen !== chatScreen || attempt !== screen.imageAttempt) return;
+    screen.photo = photo;
+    screen.preview.src = photo;
+    screen.attachment.hidden = false;
+    screen.status.textContent = "";
+  } catch (error) {
+    if (screen === chatScreen && attempt === screen.imageAttempt) {
+      screen.status.textContent = file.size > 20 * 1024 * 1024
+        ? "Wähle ein Bild mit höchstens 20 MB." : "Das Bild konnte nicht geöffnet werden.";
+    }
+  } finally {
+    if (screen === chatScreen && attempt === screen.imageAttempt) screen.send.disabled = screen.remove.disabled = false;
+  }
+}
+
+function clearChatAttachment(screen) {
+  screen.photo = "";
+  screen.preview.removeAttribute("src");
+  screen.attachment.hidden = true;
+}
+
+async function showChatImage(screen, id) {
+  const attempt = ++screen.imageViewAttempt;
+  screen.fullImage.removeAttribute("src");
+  screen.imageStatus.textContent = "Bild wird geladen …";
+  screen.imageDialog.showModal();
+  try {
+    const {data,error} = await authClient.from("love_chat_images").select("jpeg").eq("message_id",id).maybeSingle();
+    if (screen !== chatScreen || attempt !== screen.imageViewAttempt) return;
+    if (error) throw error;
+    screen.imageStatus.textContent = data ? "" : "Bild abgelaufen oder gelöscht.";
+    if (data) screen.fullImage.src = "data:image/jpeg;base64," + data.jpeg;
+  } catch {
+    if (screen === chatScreen && attempt === screen.imageViewAttempt) screen.imageStatus.textContent = "Das Bild konnte gerade nicht geladen werden.";
+  }
+}
+
+async function deleteChatImage(screen, id, button) {
+  if (!confirm("Dieses Chat-Bild für beide löschen?")) return;
+  button.disabled = true;
+  try {
+    const {error} = await authClient.from("love_chat_images").delete().eq("message_id",id);
+    if (error) throw error;
+    if (screen === chatScreen) {
+      screen.removedImages.add(id);
+      paintChat(screen);
+      screen.connection.textContent = "Bild gelöscht.";
+    }
+  } catch {
+    if (screen === chatScreen) screen.connection.textContent = "Bild konnte nicht gelöscht werden.";
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -869,17 +981,30 @@ function showChat(root) {
     <ol id="chatMessages" class="chat-messages" aria-label="Nachrichten"></ol>
     <form id="chatComposer">
       <label for="chatInput">Nachricht</label>
-      <textarea id="chatInput" rows="2" maxlength="2000" required></textarea>
+      <textarea id="chatInput" rows="2" maxlength="2000"></textarea>
+      <div id="chatAttachment" hidden>
+        <img id="chatPreview" alt="Vorschau des angehängten Bildes">
+        <button type="button" id="chatRemovePhoto">Anhang entfernen</button>
+      </div>
       <div class="actions">
         <button type="button" id="chatEmojiButton" aria-label="Emoji auswählen" aria-controls="chatEmoji" aria-expanded="false">😊</button>
+        <label class="chat-file-button">📎 Bild anhängen<input id="chatFile" type="file" accept="image/*"></label>
         <button type="submit" class="primary">Senden</button>
       </div>
       <div id="chatEmoji" hidden>
-        <label for="chatEmojiGroup">Emoji-Kategorie</label><select id="chatEmojiGroup"></select>
+        <details class="chat-emoji-categories" open><summary>Emoji-Kategorien</summary>
+          <div id="chatEmojiGroup" role="group" aria-label="Emoji-Kategorie"></div>
+        </details>
         <div id="chatEmojiGrid" class="chat-emoji-grid"></div>
       </div>
       <p id="chatStatus" role="status"></p>
     </form>
+    <dialog class="chat-image-dialog" aria-labelledby="chatImageTitle">
+      <h2 id="chatImageTitle">Chat-Bild</h2>
+      <p id="chatImageStatus" role="status"></p>
+      <img id="chatFullImage" alt="Geteiltes Chat-Bild">
+      <form method="dialog"><button>Schließen</button></form>
+    </dialog>
   </section>`;
   const form = root.querySelector("#chatComposer");
   const screen = {
@@ -887,11 +1012,27 @@ function showChat(root) {
     send:form.querySelector("button[type=submit]"), more:root.querySelector("#chatMore"),
     connection:root.querySelector("#chatConnection"), status:form.querySelector("#chatStatus"),
     picker:form.querySelector("#chatEmoji"), emojiButton:form.querySelector("#chatEmojiButton"),
-    emojiGroup:form.querySelector("#chatEmojiGroup"), emojiGrid:form.querySelector("#chatEmojiGrid")
+    emojiGroup:form.querySelector("#chatEmojiGroup"), emojiGrid:form.querySelector("#chatEmojiGrid"),
+    photo:"", imageAttempt:0, imageViewAttempt:0, removedImages:new Set(),
+    file:form.querySelector("#chatFile"), remove:form.querySelector("#chatRemovePhoto"),
+    attachment:form.querySelector("#chatAttachment"), preview:form.querySelector("#chatPreview"),
+    imageDialog:root.querySelector(".chat-image-dialog"), fullImage:root.querySelector("#chatFullImage"),
+    imageStatus:root.querySelector("#chatImageStatus")
   };
   chatScreen = screen;
   form.addEventListener("submit",event => void sendChatMessage(event,screen));
   screen.more.addEventListener("click",() => void loadChatMessages(screen,true));
+  screen.file.addEventListener("change", () => void previewChatAttachment(screen));
+  screen.remove.addEventListener("click", () => { clearChatAttachment(screen); });
+  screen.imageDialog.addEventListener("close", () => {
+    ++screen.imageViewAttempt;
+    screen.fullImage.removeAttribute("src");
+  });
+  screen.list.addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (button?.dataset.chatImage) void showChatImage(screen, Number(button.dataset.chatImage));
+    if (button?.dataset.chatDelete) void deleteChatImage(screen, Number(button.dataset.chatDelete), button);
+  });
   screen.emojiButton.addEventListener("click",() => void openChatEmoji(screen));
   screen.emojiGrid.addEventListener("click",event => {
     const button = event.target.closest("button");
@@ -1525,7 +1666,7 @@ function editToy(id) {
   document.getElementById("toyName")?.focus();
 }
 
-async function resizeToyPhoto(file) {
+async function resizeSharedPhoto(file) {
   if (file.size > 20 * 1024 * 1024) throw new Error("Das Foto darf höchstens 20 MB groß sein.");
   const bitmap = await createImageBitmap(file);
   try {
@@ -1564,7 +1705,7 @@ async function saveToy(event) {
   button.disabled = true;
   pending = active;
   try {
-    const photo = file ? await resizeToyPhoto(file) : (clearPhoto ? null : editing?.photo ?? null);
+    const photo = file ? await resizeSharedPhoto(file) : (clearPhoto ? null : editing?.photo ?? null);
     if (active !== account) return;
     const toy = {id: editing?.id ?? crypto.randomUUID(), name, categories: tags, photo};
     const {error} = await authClient.from("love_toys").upsert({...toy, couple_id: active.coupleId});
