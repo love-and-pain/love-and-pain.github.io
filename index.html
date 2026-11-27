@@ -536,11 +536,11 @@ body.app-signed-in::before {
 <button class="tab active" data-view="kalender" aria-label="Startseite" title="Startseite"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="m3 11 9-8 9 8M5 9.5V21h5v-6h4v6h5V9.5"/></svg></button>
 <button class="tab" data-view="chat">Chat</button>
 <button class="tab" data-view="spiele">Spiele</button>
+<button class="tab" data-view="zufall">🎲 Zufallsgenerator</button>
 <button class="tab" data-view="kategorien">Kategorien</button>
 <button class="tab" data-view="toys">Toy Galerie</button>
 <button class="tab" data-view="eigene">Eigene Ideen</button>
 <button class="tab" data-view="favoriten">Favoriten</button>
-<button class="tab" data-view="vorlieben">Vorlieben</button>
 <button class="tab" data-view="listen">Wunschliste</button>
 </nav>
 <section id="app"></section>
@@ -560,6 +560,7 @@ const start = new Date(2026, 10, 26);
 const categories=["Romantik","Zärtlichkeiten","Oral","Anal","BDSM","Spanking","Fesseln","Intensiv","Massage","Selbstbefriedigung","Outdoor"];
 let days = [], outdoorIdeas = [], state = null, account = null;
 let view = "kalender", selected = 0, monthOffset = 0;
+let randomSelection = null;
 let editingToyId = null;
 let editingPeriodId = null;
 let editingMemoryId = null;
@@ -641,6 +642,7 @@ function startPrivateData(userId, data) {
 function clearPrivateData() {
   closeChat();
   account = state = null;
+  randomSelection = null;
   planDraft = null;
   gameCards = gameRound = null;
   gameLoading = gameLoadError = false;
@@ -748,7 +750,7 @@ if(view==="kategorien") root.innerHTML=categoriesView();
 if(view==="kalender") root.innerHTML=calendarView();
 if(view==="listen") root.innerHTML=listView();
 if(view==="favoriten") root.innerHTML=favView();
-if(view==="vorlieben") root.innerHTML=prefsView();
+if(view==="zufall") root.innerHTML=randomView();
 if(view==="eigene") root.innerHTML=customView();
 if(view==="outdoor") root.innerHTML=outdoorView();
 if(view==="toys") root.innerHTML=toyGalleryView();
@@ -2108,7 +2110,7 @@ html+=`</div><div class="small" style="margin-top:10px">Heute und vergangene Tag
 html+=planningPanel(first);
 if (!isReleased(selected)) return html + periodView(d) + mutualInterestsView();
 let idea=days[selected];
-html+=`<div class="panel"><div class="small">${fmt(d)} · Tag ${selected+1} von 365</div><h2 style="margin-top:5px">Eure Idee des Tages</h2>${categoryTag(idea.cat)}<div class="idea"><h3>${esc(idea.text)}</h3></div><div class="detail-card"><span class="detail-label">👥 Wer macht was?</span><strong>${esc(idea.roles)}</strong></div><div class="detail-grid"><div class="detail-card"><span class="detail-label">⏱ Zeit einplanen</span><strong>${esc(idea.duration)}</strong></div><div class="detail-card"><span class="detail-label">⚡ Intensität</span><strong>${esc(idea.level)}</strong></div></div><div class="detail-card"><span class="detail-label">🧰 Benötigte Utensilien / Vorbereitung</span><ul class="materials">${idea.materials.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><p class="small">Die Angaben sind Vorschläge. Passt Dauer und Material gemeinsam an; Zustimmung, Grenzen und jederzeitige Pause haben Vorrang.</p><label class="checkline"><input type="checkbox" ${state.done.includes(idea.id)?"checked":""} onchange="toggleDone('${idea.id}',this.checked)"> Als erledigt markieren</label><div class="actions"><button class="primary" onclick="toggleFav('${idea.id}')">${state.favs.includes(idea.id)?"★ Favorit entfernen":"☆ Als Favorit speichern"}</button><button onclick="randomIdea()">🎲 Zufallsidee</button></div><div class="actions"><button class="ghost" onclick="addToList('${idea.id}')">+ Meine Wunschliste</button></div></div>`;
+html+=`<div class="panel"><div class="small">${fmt(d)} · Tag ${selected+1} von 365</div><h2 style="margin-top:5px">Eure Idee des Tages</h2>${categoryTag(idea.cat)}<div class="idea"><h3>${esc(idea.text)}</h3></div><div class="detail-card"><span class="detail-label">👥 Wer macht was?</span><strong>${esc(idea.roles)}</strong></div><div class="detail-grid"><div class="detail-card"><span class="detail-label">⏱ Zeit einplanen</span><strong>${esc(idea.duration)}</strong></div><div class="detail-card"><span class="detail-label">⚡ Intensität</span><strong>${esc(idea.level)}</strong></div></div><div class="detail-card"><span class="detail-label">🧰 Benötigte Utensilien / Vorbereitung</span><ul class="materials">${idea.materials.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><p class="small">Die Angaben sind Vorschläge. Passt Dauer und Material gemeinsam an; Zustimmung, Grenzen und jederzeitige Pause haben Vorrang.</p><label class="checkline"><input type="checkbox" ${state.done.includes(idea.id)?"checked":""} onchange="toggleDone('${idea.id}',this.checked)"> Als erledigt markieren</label><div class="actions"><button class="primary" onclick="toggleFav('${idea.id}')">${state.favs.includes(idea.id)?"★ Favorit entfernen":"☆ Als Favorit speichern"}</button><button onclick="goView('zufall')">🎲 Zufallsgenerator</button></div><div class="actions"><button class="ghost" onclick="addToList('${idea.id}')">+ Meine Wunschliste</button></div></div>`;
 html+=`<div class="panel">${ratingView(idea.id)}</div>`;
 html+=toyChoicesView(idea);
 html+=activityPlanActions(idea);
@@ -2129,6 +2131,16 @@ function listView(){
   ).join("") : '<div class="emptymsg">Noch keine Wünsche gespeichert.</div>'}</div>`;
 }
 function favView(){let arr=state.favs.filter(ideaById);let h='<div class="panel"><h2>Favoriten</h2>';if(!arr.length)h+='<div class="emptymsg">Markiert eure Lieblingsideen im Kalender.</div>';arr.forEach(id=>{let x=ideaById(id);if(x)h+=`<div class="listitem">${categoryTag(x.cat)}<div>${esc(x.text)}</div><div class="actions"><button onclick="selectById('${id}')">Im Kalender ansehen</button><button onclick="toggleFav('${id}')">★ Entfernen</button></div></div>`});return h+'</div>'}
+function randomView() {
+  const idea = randomSelection;
+  const result = idea ? `${categoryTag(idea.cat)}
+    <h3>${esc(idea.text)}</h3>
+    <button onclick="selectById('${idea.id}')">Im Kalender ansehen</button>` : "";
+  return `<div class="panel"><h2>🎲 Zufallsgenerator</h2>
+    <button class="primary" onclick="randomIdea()" ${releasedDays().length ? "" : "disabled"}>Idee ziehen</button>
+    <div id="random-result" aria-live="polite">${result}</div>
+  </div>${prefsView()}`;
+}
 function prefsView(){return `<div class="panel"><h2>Unsere Vorlieben</h2><p class="muted">Wählt aus, welche Arten von Ideen ihr im Zufallsgenerator bevorzugt. Alles kann jederzeit geändert werden.</p>${categories.map(c=>`<label class="checkline"><input type="checkbox" ${state.prefs.includes(c)?"checked":""} onchange="togglePref('${c}',this.checked)">${categoryIcons[c]||"•"} ${c}</label>`).join("")}<p class="small">Bei BDSM-Ideen gilt: vorher Grenzen, Safeword und gegenseitiges Einverständnis klären.</p></div>`}
 function customView(){return `<div class="panel"><h2>Eigene Idee hinzufügen</h2><label class="small">Kategorie</label><select id="newcat">${categories.map(c=>`<option>${c}</option>`).join("")}</select><label class="small">Eure Idee</label><textarea id="newtext" placeholder="Schreibt eure eigene Idee auf …"></textarea><button class="primary" onclick="addCustom()">Idee speichern</button></div><div class="panel"><h2>Eigene Ideen</h2>${state.custom.length?state.custom.map(x=>`<div class="listitem">${categoryTag(x.cat)}<div>${esc(x.text)}</div><button style="margin-top:8px" onclick="deleteCustom('${x.id}')">Löschen</button>${ratingView(x.id)}</div>`).join(""):'<div class="emptymsg">Hier erscheinen eure eigenen Ideen.</div>'}</div>`}
 function changeMonth(n){monthOffset+=n;render()}
@@ -2175,7 +2187,12 @@ function randomIdea() {
   const available = releasedDays();
   const preferred = available.filter(idea => state.prefs.includes(idea.cat));
   const pool = preferred.length ? preferred : available;
-  if (pool.length) selectDay(pool[Math.floor(Math.random() * pool.length)].day);
+  const alternatives = pool.filter(idea => idea.id !== randomSelection?.id);
+  const choices = alternatives.length ? alternatives : pool;
+  if (!choices.length) return;
+  randomSelection = choices[Math.floor(Math.random() * choices.length)];
+  render();
+  document.querySelector('button[onclick="randomIdea()"]').focus();
 }
 function selectById(id){let x=ideaById(id);if(x&&x.day!==undefined){selected=x.day;view="kalender";render()}else if(x&&x.cat==="Outdoor"){view="outdoor";render()}}
 function addCustom() {
