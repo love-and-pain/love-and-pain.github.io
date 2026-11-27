@@ -426,25 +426,18 @@ body.app-signed-in::before {
 .app-signed-in :is(.tag,.dayhead) { color:var(--gold); }
 </style>
 <style>
-.app-signed-in .profile-hero{padding:20px;border:1px solid #783346;border-radius:26px;background:radial-gradient(ellipse at 15% 5%,#58182b,transparent 65%),linear-gradient(140deg,#29121c,#130d14 72%);box-shadow:0 18px 50px #0008}
-.profile-hero-top,.profile-hero-row{display:flex;align-items:center;gap:16px}
-.profile-hero-top{justify-content:space-between;color:#f28297;text-transform:uppercase;letter-spacing:.17em;font-size:.72rem}
-.profile-hero-row{margin:16px 0}
-.profile-hero-row .profile-avatar{width:76px;height:76px;margin:0;border-radius:26px;border-color:#d05571;font-size:35px;box-shadow:0 0 21px #be2a5255}
+.app-signed-in .profile-hero{padding:14px 16px;border:1px solid #783346;border-radius:26px;background:radial-gradient(ellipse at 15% 5%,#58182b,transparent 65%),linear-gradient(140deg,#29121c,#130d14 72%);box-shadow:0 18px 50px #0008}
+.profile-hero-row{display:flex;align-items:center;gap:12px;margin:0 0 12px}
+.profile-hero-row .profile-avatar{width:58px;height:58px;margin:0;border-radius:26px;border-color:#d05571;font-size:35px;box-shadow:0 0 21px #be2a5255}
 .profile-hero-row h2{font-size:clamp(2rem,8vw,3.3rem);margin:0 0 4px}
+#profileMenuToggle{margin-left:auto;flex:none;min-width:44px;min-height:44px;color:var(--gold)}
+#profileSectionMenu{display:grid;gap:6px;margin-top:12px}
+#profileSectionMenu button{text-align:left;color:var(--gold)}
+#profileSectionMenu button[aria-expanded="true"]{background:#491a2d;border-color:#cb5975}
+#profileSectionMenu[hidden],.profile-area [data-profile-section][hidden]{display:none}
 .profile-display-name,.profile-mood{color:var(--gold)}
 .profile-mood{display:inline-flex;align-items:center;gap:9px;border:1px solid #783346;border-radius:30px;padding:6px 12px;background:#150e14;font-size:.85rem}
 .profile-mood::before{content:"";width:8px;height:8px;border-radius:50%;background:#e84a71}
-.profile-jump{width:min(100%,240px);text-align:right}
-.profile-jump>summary{display:inline-grid;place-items:center;list-style:none;width:44px;height:44px;border:1px solid #783346;border-radius:12px;color:var(--gold);cursor:pointer;font-size:1.15rem}
-.profile-jump nav{display:grid;gap:4px;margin-top:6px}
-.profile-jump nav button{text-align:left;letter-spacing:normal;text-transform:none}
-.app-signed-in .profile-disclosure{padding:0;border-radius:18px}
-.profile-disclosure>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:52px;padding:13px 18px;list-style:none;cursor:pointer;font:1.25rem Georgia,serif}
-.profile-disclosure>summary::-webkit-details-marker,.profile-jump>summary::-webkit-details-marker{display:none}
-.profile-disclosure>summary::after{content:"";width:8px;height:8px;flex:none;margin-right:4px;border-right:2px solid var(--gold);border-bottom:2px solid var(--gold);transform:rotate(45deg)}
-.profile-disclosure[open]>summary::after{transform:rotate(225deg)}
-.profile-disclosure-content{padding:2px 18px 17px}
 </style>
 <style>
 .profile-area .profile-mood-field{border:0;margin:0;padding:0;min-inline-size:0}
@@ -763,9 +756,11 @@ if(view==="eigene") root.innerHTML=customView();
 if(view==="outdoor") root.innerHTML=outdoorView();
 if(view==="toys") root.innerHTML=toyGalleryView();
 if (view === "profil") {
-  const openSections = [...root.querySelectorAll(".profile-disclosure[open]")].map(section => section.id);
+  const openSection = root.querySelector("[data-profile-section]:not([hidden])")?.id;
+  const menuOpen = root.querySelector("#profileSectionMenu:not([hidden])");
   root.innerHTML = profileView();
-  for (const id of openSections) document.getElementById(id).open = true;
+  if (menuOpen) document.getElementById("profileMenuToggle").click();
+  if (openSection) openProfileSection(openSection, false);
   void refreshPushToggle();
 }
 if(view==="spiele") root.innerHTML=gamesView();
@@ -1385,13 +1380,17 @@ async function signOutOfApp() {
   if (error) alert("Abmelden fehlgeschlagen: " + error.message);
 }
 
-function openProfileSection(id) {
+function openProfileSection(id, moveFocus = true) {
   const section = document.getElementById(id);
   if (!section) return;
-  section.open = true;
-  document.querySelector(".profile-jump").open = false;
-  section.querySelector("summary").focus();
-  section.scrollIntoView({block:"nearest"});
+  const show = section.hidden;
+  for (const panel of document.querySelectorAll("[data-profile-section]")) {
+    panel.hidden = panel !== section || !show;
+  }
+  for (const button of document.querySelectorAll("#profileSectionMenu button")) {
+    button.setAttribute("aria-expanded", String(show && button.getAttribute("aria-controls") === id));
+  }
+  if (show && moveFocus) section.focus();
 }
 
 function profileView() {
@@ -1409,50 +1408,43 @@ function profileView() {
   const fieldMarkup = field => profileFieldView(field, currentProfileEntry(own.find(entry => entry.field === field[0]), day));
   return `<section class="profile-area">
     <div class="profile-hero">
-      <div class="profile-hero-top"><span>Privates Profil</span>
-        <details class="profile-jump"><summary aria-label="Profilmenü">☰</summary>
-          <nav aria-label="Profilabschnitte">
-            <button type="button" onclick="openProfileSection('profile-options')">Profil &amp; Stimmung</button>
-            <button type="button" onclick="openProfileSection('profile-preferences')">Vorlieben</button>
-            <button type="button" onclick="openProfileSection('profile-memories')">Geilster Sex mit dir</button>
-            <button type="button" onclick="openProfileSection('profile-notifications')">Benachrichtigungen</button>
-          </nav>
-        </details>
-      </div>
       <div class="profile-hero-row">
         <div class="account-avatar profile-avatar" id="profileAvatarPreview" aria-hidden="true">${account.avatar}</div>
         <div><h2 id="profileHeading" tabindex="-1">Mein Bereich</h2><span class="profile-display-name">${esc(account.displayName)}</span></div>
+        <button type="button" id="profileMenuToggle" aria-label="Profilmenü" aria-expanded="false" aria-controls="profileSectionMenu" onclick="const menu = document.getElementById('profileSectionMenu'); menu.hidden = !menu.hidden; this.setAttribute('aria-expanded', String(!menu.hidden))">☰</button>
       </div>
       <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
+      <nav id="profileSectionMenu" aria-label="Profilabschnitte" hidden>
+        <button type="button" aria-controls="profile-options" aria-expanded="false" onclick="openProfileSection('profile-options')">Profil &amp; Stimmung</button>
+        <button type="button" aria-controls="profile-preferences" aria-expanded="false" onclick="openProfileSection('profile-preferences')">Vorlieben</button>
+        <button type="button" aria-controls="profile-memories" aria-expanded="false" onclick="openProfileSection('profile-memories')">Geilster Sex mit dir</button>
+        <button type="button" aria-controls="profile-notifications" aria-expanded="false" onclick="openProfileSection('profile-notifications')">Benachrichtigungen</button>
+      </nav>
     </div>
-    <form onsubmit="saveProfileFields(event)" onchange="if (event.target.name === 'mood') updateMoodPreview(event.target)">
-      <details class="panel profile-disclosure" id="profile-options">
-      <summary>Profil &amp; Stimmung</summary>
-      <div class="profile-disclosure-content">
+    <section class="panel" data-profile-section id="profile-options" aria-label="Profil und Stimmung" tabindex="-1" hidden>
     <label class="avatar-select-label" for="profileAvatarSelect">Profil-Smiley</label>
     <select id="profileAvatarSelect" class="avatar-select" onchange="saveProfileAvatar(this)">
       ${avatarOptions.map(([emoji, label]) => `<option value="${emoji}" ${emoji === account.avatar ? "selected" : ""}>${emoji} ${label}</option>`).join("")}
     </select>
     <p id="avatarStatus" role="status"></p>
-      ${profileFields.filter(field => field[0] === "mood").map(fieldMarkup).join("")}
-      </div></details>
-      <details class="panel profile-disclosure" id="profile-preferences">
-        <summary>Vorlieben</summary>
-        <div class="profile-disclosure-content">
-          <p>Alles ist freiwillig und zunächst privat. Du kannst jedes Feld einzeln freigeben.</p>
-          <div class="profile-grid">${profileFields.filter(field => field[0] !== "mood").map(fieldMarkup).join("")}</div>
-        </div>
-      </details>
-      <button type="submit" class="primary">Profil speichern</button>
-      <p id="profileStatus" role="status"></p>
-    </form>
-    <details class="panel profile-disclosure" id="profile-memories">
-      <summary>Geilster Sex mit dir</summary>
-      <div id="profileMemories" class="profile-disclosure-content profile-memories">${memoriesView()}</div>
-    </details>
-    <details class="panel profile-disclosure" id="profile-notifications">
-      <summary>Benachrichtigungen</summary>
-      <div class="profile-disclosure-content">
+      <form data-profile-fields="mood" onsubmit="saveProfileFields(event)" onchange="if (event.target.name === 'mood') updateMoodPreview(event.target)">
+        ${profileFields.filter(field => field[0] === "mood").map(fieldMarkup).join("")}
+        <button type="submit" class="primary">Stimmung speichern</button>
+        <p data-profile-status role="status"></p>
+      </form>
+    </section>
+    <section class="panel" data-profile-section id="profile-preferences" aria-label="Vorlieben" tabindex="-1" hidden>
+      <form data-profile-fields="preferences" onsubmit="saveProfileFields(event)">
+        <p>Alles ist freiwillig und zunächst privat. Du kannst jedes Feld einzeln freigeben.</p>
+        <div class="profile-grid">${profileFields.filter(field => field[0] !== "mood").map(fieldMarkup).join("")}</div>
+        <button type="submit" class="primary">Vorlieben speichern</button>
+        <p data-profile-status role="status"></p>
+      </form>
+    </section>
+    <section class="panel profile-memories" data-profile-section id="profile-memories" aria-label="Geilster Sex mit dir" tabindex="-1" hidden>
+      <div id="profileMemories">${memoriesView()}</div>
+    </section>
+    <section class="panel" data-profile-section id="profile-notifications" aria-label="Benachrichtigungen" tabindex="-1" hidden>
       <label>
         <input id="pushToggle" type="checkbox" role="switch" onchange="changePushToggle(this)"
           aria-describedby="pushHelp pushStatus" disabled>
@@ -1460,8 +1452,7 @@ function profileView() {
       </label>
       <p id="pushHelp">Für neue Termine und Fotos in der gemeinsamen Galerie.</p>
       <p id="pushStatus" role="status"></p>
-      </div>
-    </details>
+    </section>
     ${sharedList ? `<section class="panel profile-shared"><h3>Mit mir geteilt</h3><dl>${sharedList}</dl></section>` : ""}
     <button class="ghost profile-logout" type="button" onclick="signOutOfApp()">Abmelden</button>
   </section>`;
@@ -1473,11 +1464,12 @@ async function saveProfileFields(event) {
   const active = account;
   const form = event.currentTarget;
   const button = form.querySelector('button[type="submit"]');
-  const status = form.querySelector("#profileStatus");
+  const status = form.querySelector("[data-profile-status]");
   const values = new FormData(form);
   const day = dateKey(berlinCalendarDate());
   const rows = [];
   for (const [field] of profileFields) {
+    if ((field === "mood") !== (form.dataset.profileFields === "mood")) continue;
     const previous = state.profileFields.find(entry => entry.user_id === active.userId && entry.field === field);
     const current = currentProfileEntry(previous, day);
     const value = String(values.get(field) ?? "").trim();
@@ -1498,8 +1490,9 @@ async function saveProfileFields(event) {
     const changed = new Set(rows.map(row => row.field));
     state.profileFields = [...state.profileFields.filter(entry => entry.user_id !== active.userId || !changed.has(entry.field)), ...rows];
     if (view === "profil") {
-      render();
-      document.getElementById("profileStatus").textContent = "Gespeichert.";
+      const moodRow = rows.find(row => row.field === "mood");
+      if (moodRow) document.getElementById("profileMood").textContent = "Stimmung: " + (moodRow.value || "Keine ausgewählt");
+      status.textContent = "Gespeichert.";
     }
   } catch {
     status.textContent = "Speichern fehlgeschlagen. Bitte versuche es erneut.";
