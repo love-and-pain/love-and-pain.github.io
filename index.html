@@ -2714,7 +2714,7 @@ render();
     };
   }
 
-  const inactivityLimit = 15 * 60 * 1000;
+    const inactivityLimit = 5 * 60 * 1000;
   let idleSession = null;
   let idleTimer = null;
   let idleLogoutRunning = false;
@@ -2758,7 +2758,7 @@ render();
     entered = true;
     showSignedOut();
     passwordInput.value = "";
-    showMessage("Du wurdest nach 15 Minuten ohne Bedienung abgemeldet. Bitte melde dich erneut an.", false);
+        showMessage("Du wurdest nach 5 Minuten ohne Bedienung abgemeldet. Bitte melde dich erneut an.", false);
     try {
       const {error} = await authClient.auth.signOut({scope:"local"});
       if (error) throw error;
