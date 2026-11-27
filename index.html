@@ -302,12 +302,20 @@ select,input,textarea{background:#10090c;border-color:#60202e;color:#fff1f2}
 .game-prompt small+p{margin-top:6px}
 .game-actions{margin-top:14px}
 .toy-picker{margin-top:10px}
-.toy-picker summary{display:flex;align-items:center;justify-content:space-between;gap:12px;
+:is(.toy-picker,.idea-category-picker) summary{display:flex;align-items:center;justify-content:space-between;gap:12px;
   min-height:44px;padding:8px 12px;cursor:pointer;border:1px solid var(--line);border-radius:10px;background:#1e1017;list-style:none}
-.toy-picker summary::-webkit-details-marker{display:none}
-.toy-picker summary::after{content:"";width:8px;height:8px;flex:none;border-right:2px solid #e5a2b4;border-bottom:2px solid #e5a2b4;transform:rotate(45deg)}
-.toy-picker[open] summary::after{transform:rotate(225deg)}
+:is(.toy-picker,.idea-category-picker) summary::-webkit-details-marker{display:none}
+:is(.toy-picker,.idea-category-picker) summary::after{content:"";width:8px;height:8px;flex:none;border-right:2px solid #e5a2b4;border-bottom:2px solid #e5a2b4;transform:rotate(45deg)}
+:is(.toy-picker,.idea-category-picker)[open] summary::after{transform:rotate(225deg)}
 .toy-picker-options{padding:0 10px}
+.idea-category-picker{margin:6px 0 12px}
+.idea-category-options{display:grid;gap:4px;margin-top:5px;padding:5px;max-height:45vh;
+  overflow:auto;border:1px solid #57303b;border-radius:10px;background:#1a1018}
+.idea-category-options button{display:flex;align-items:center;justify-content:space-between;
+  min-height:44px;margin:0;text-align:left;background:transparent;border-color:transparent}
+.idea-category-options button[aria-pressed="true"]{background:#381323;border-color:#b4546c;color:var(--gold)}
+.idea-category-options button[aria-pressed="true"]::after{content:"✓";margin-left:12px}
+
 .toy-form label[for]{display:block;margin:12px 0 4px}
 </style>
 <style>
@@ -2142,7 +2150,28 @@ function randomView() {
   </div>${prefsView()}`;
 }
 function prefsView(){return `<div class="panel"><h2>Unsere Vorlieben</h2><p class="muted">Wählt aus, welche Arten von Ideen ihr im Zufallsgenerator bevorzugt. Alles kann jederzeit geändert werden.</p>${categories.map(c=>`<label class="checkline"><input type="checkbox" ${state.prefs.includes(c)?"checked":""} onchange="togglePref('${c}',this.checked)">${categoryIcons[c]||"•"} ${c}</label>`).join("")}<p class="small">Bei BDSM-Ideen gilt: vorher Grenzen, Safeword und gegenseitiges Einverständnis klären.</p></div>`}
-function customView(){return `<div class="panel"><h2>Eigene Idee hinzufügen</h2><label class="small">Kategorie</label><select id="newcat">${categories.map(c=>`<option>${c}</option>`).join("")}</select><label class="small">Eure Idee</label><textarea id="newtext" placeholder="Schreibt eure eigene Idee auf …"></textarea><button class="primary" onclick="addCustom()">Idee speichern</button></div><div class="panel"><h2>Eigene Ideen</h2>${state.custom.length?state.custom.map(x=>`<div class="listitem">${categoryTag(x.cat)}<div>${esc(x.text)}</div><button style="margin-top:8px" onclick="deleteCustom('${x.id}')">Löschen</button>${ratingView(x.id)}</div>`).join(""):'<div class="emptymsg">Hier erscheinen eure eigenen Ideen.</div>'}</div>`}
+function customCategoryPicker() {
+  const first = categories[0];
+  return `<details class="idea-category-picker">
+    <summary>Kategorie <span id="newcat-label">${esc(first)}</span></summary>
+    <input id="newcat" type="hidden" value="${esc(first)}">
+    <div class="idea-category-options" role="group" aria-label="Kategorie auswählen">
+      ${categories.map(cat => `<button type="button" data-category="${esc(cat)}"
+        aria-pressed="${cat === first}" onclick="chooseCustomCategory(this)">${esc(cat)}</button>`).join("")}
+    </div>
+  </details>`;
+}
+function chooseCustomCategory(button) {
+  const picker = button.closest("details");
+  const category = button.dataset.category;
+  picker.querySelector("#newcat").value = category;
+  picker.querySelector("#newcat-label").textContent = category;
+  picker.querySelector('[aria-pressed="true"]').setAttribute("aria-pressed", "false");
+  button.setAttribute("aria-pressed", "true");
+  picker.open = false;
+  picker.querySelector("summary").focus();
+}
+function customView(){return `<div class="panel"><h2>Eigene Idee hinzufügen</h2>${customCategoryPicker()}<label class="small">Eure Idee</label><textarea id="newtext" placeholder="Schreibt eure eigene Idee auf …"></textarea><button class="primary" onclick="addCustom()">Idee speichern</button></div><div class="panel"><h2>Eigene Ideen</h2>${state.custom.length?state.custom.map(x=>`<div class="listitem">${categoryTag(x.cat)}<div>${esc(x.text)}</div><button style="margin-top:8px" onclick="deleteCustom('${x.id}')">Löschen</button>${ratingView(x.id)}</div>`).join(""):'<div class="emptymsg">Hier erscheinen eure eigenen Ideen.</div>'}</div>`}
 function changeMonth(n){monthOffset+=n;render()}
 function selectDay(i) {
   today = berlinCalendarDate();
