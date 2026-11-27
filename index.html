@@ -2980,6 +2980,7 @@ render();
       return;
     }
     if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && authCallback.get("type") === "invite")) {
+      authCallback.delete("type");
       entered = true;
       showSignedOut();
       recoverySession = true;
