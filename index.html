@@ -438,7 +438,17 @@ body.app-signed-in::before {
 #profileSectionMenu[hidden],.profile-area [data-profile-section][hidden]{display:none}
 .profile-display-name,.profile-mood{color:var(--gold)}
 .profile-mood{display:inline-flex;align-items:center;gap:9px;border:1px solid #783346;border-radius:30px;padding:6px 12px;background:#150e14;font-size:.85rem}
-.profile-mood::before{content:"";width:8px;height:8px;border-radius:50%;background:#e84a71}
+.profile-mood{display:block;overflow-wrap:anywhere}
+.mood-badge{color:var(--mood-tone);font-weight:700}
+.mood-note{display:block;overflow-wrap:anywhere;color:var(--muted)}
+.account-mood{font-size:.78rem;max-width:15ch;text-align:center;line-height:1.25}
+.account-mood:empty{display:none}
+.mood-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.mood-chips .mood-chip{display:flex;align-items:center;gap:6px;min-height:48px;height:auto;margin:0;padding:8px;border:1px solid #783346;border-radius:12px;color:var(--mood-tone,#e5c4c7);background:#29151d;cursor:pointer;overflow-wrap:anywhere}
+.mood-chip input[type=radio]{flex:none;width:16px;height:16px;margin:0;accent-color:var(--mood-tone,#d9b887)}
+.mood-chip:has(input:checked){border-color:var(--mood-tone,#e5c4c7);background:#40202b}
+.mood-suggestion{border-left:4px solid var(--mood-tone)}
+.mood-suggestion strong{color:var(--mood-tone)}
 </style>
 <style>
 .profile-area .profile-mood-field{border:0;margin:0;padding:0;min-inline-size:0}
@@ -1258,13 +1268,57 @@ const profileFields = [
   ["boundaries", "Heute oder generell lieber nicht", "Was passt für dich gerade nicht?"]
 ];
 const moodChoices = [
-  "Zärtlich", "Verspielt", "Intensiv", "Heute lieber Pause",
-  "Verlangen", "Experimentierfreudig", "Keine Limits"
+  ["🔥", "Mega geil / Total heiß", "#ff6679", "Lust auf einen intensiven Abend.", "Intensiver Abend", "Wenn ihr beide Lust habt, nehmt euch Zeit und entscheidet gemeinsam, was passt."],
+  ["😈", "Verdorben & fordernd", "#f6a2ec", "Lust auf ein dominantes Rollenspiel mit klarer Absprache.", "Rollenspiel zu zweit", "Besprecht vorher eure Rollen und Grenzen."],
+  ["⛓️", "Verspielt & neugierig", "#ffc470", "Offen für Spiele, kleine Aufgaben oder etwas Neues.", "Verspielter Abend", "Sucht euch abwechselnd eine kleine Aufgabe oder eine neue Idee aus."],
+  ["🍷", "Sinnlich & kuschelig", "#ffa8b3", "Lust auf Nähe, Küsse oder eine ruhige Massage.", "Nähe bei gedimmtem Licht", "Nehmt euch Zeit für eine ruhige Massage oder einen Kuschelabend."],
+  ["👀", "Neutral / Mal schauen", "#e2c5dc", "Offen für Vorschläge und ein bisschen Flirten.", "Spontanes Mini-Date", "Flirtet ein bisschen und entscheidet gemeinsam, worauf ihr Lust habt."],
+  ["🌙", "Müde / Wenig Energie", "#bfc9f0", "Wenn überhaupt, dann etwas Kurzes und Ruhiges.", "Kurze Auszeit", "Macht es euch für ein paar Minuten gemütlich."],
+  ["🫂", "Aftercare / Ruhepuls", "#b7d8cf", "Wärme, Geborgenheit und Zeit zum Runterkommen.", "Zeit zum Runterkommen", "Eine Decke, etwas zu trinken und Ruhe. Nähe gibt es, wenn sie gerade guttut."],
+  ["🤒", "Ich bin krank / Pause", "#c2c1c8", "Heute ist Pause. Rücksicht und Erholung gehen vor.", "Heute ist Pause", "Die Tagesidee pausiert. Erholung hat Vorrang."]
 ];
+const oldMoods = new Map([["Intensiv", 0], ["Verlangen", 0], ["Keine Limits", 0], ["Verspielt", 2], ["Experimentierfreudig", 2], ["Zärtlich", 3], ["Heute lieber Pause", 7]]);
+
+function moodParts(value = "") {
+  const [label, ...lines] = value.split("\n");
+  const index = moodChoices.findIndex(choice => choice[1] === label);
+  const moodIndex = index < 0 ? (oldMoods.get(label) ?? -1) : index;
+  return {index: moodIndex, label: moodChoices[moodIndex]?.[1] ?? label, note: lines.join(" ").trim()};
+}
+
+function moodBadge(value, empty = "") {
+  const {index, label, note} = moodParts(value);
+  if (!label) return esc(empty);
+  const choice = moodChoices[index];
+  return `<span class="mood-badge" style="--mood-tone:${choice?.[2] ?? "#c2c1c8"}">${choice?.[0] ?? ""} ${esc(label)}</span>${note ? `<small class="mood-note">${esc(note)}</small>` : ""}`;
+}
+
+function moodsToday() {
+  const day = dateKey(berlinCalendarDate());
+  const current = state.profileFields.filter(entry => entry.field === "mood" && entry.mood_on === day);
+  return [current.find(entry => entry.user_id === account.userId)?.value,
+    current.find(entry => entry.user_id !== account.userId && entry.shared)?.value];
+}
+
+function updateAccountMoods() {
+  if (!account) return;
+  const [own, partner] = moodsToday();
+  for (const [id, value] of [["accountMood", own], ["partnerMood", partner]]) {
+    const badge = document.getElementById(id);
+    if (badge) badge.innerHTML = moodBadge(value);
+  }
+}
+
+function moodDailySuggestion() {
+  const index = Math.max(...moodsToday().map(value => moodParts(value).index));
+  if (index < 0) return "";
+  const [symbol, , color, , title, description] = moodChoices[index];
+  return `<section class="panel mood-suggestion" style="--mood-tone:${color}"><h2>Vorschlag nach Stimmung</h2><strong>${symbol} ${title}</strong><p>${description}</p></section>`;
+}
 
 function profileOptions(field) {
   if (field === "toy") return state.toys.map(toy => [toy.id, toy.name]);
-  if (field === "mood") return moodChoices.map(mood => [mood, mood]);
+  if (field === "mood") return moodChoices.map(([, mood]) => [mood, mood]);
   if (field === "repeat") return releasedDays().map(idea => {
     const title = String(idea.text).split(" – ")[0].slice(0, 100);
     return [idea.id, `${fmt(dateAt(idea.day))} · ${title}`];
@@ -1281,12 +1335,13 @@ function profileFieldView([field, label, placeholder], entry) {
   const options = profileOptions(field);
   let control;
   if (field === "mood") {
-    control = `<details class="mood-picker">
-      <summary>${esc(value || placeholder)}</summary>
-      <div class="mood-choices">${[["", "Keine Stimmung ausgewählt"], ...options, ...(value && !options.some(([key]) => key === value) ? [[value, value + " (bisherige Auswahl)"]] : [])].map(([key, name]) =>
-        `<label><input type="radio" name="mood" value="${esc(key)}" ${key === value ? "checked" : ""}>
-          <span>${esc(name)}</span></label>`).join("")}</div>
-    </details>`;
+    const mood = moodParts(value);
+    control = `<div class="mood-chips">${moodChoices.map(([icon, name, tone]) =>
+      `<label class="mood-chip" style="--mood-tone:${tone}"><input type="radio" name="mood" value="${esc(name)}" ${name === mood.label ? "checked" : ""}><span>${icon} ${esc(name)}</span></label>`).join("")}
+      <label class="mood-chip"><input type="radio" name="mood" value="" ${mood.index < 0 ? "checked" : ""}><span>Keine Stimmung</span></label></div>
+      <p class="muted" data-mood-description>${esc(moodChoices[mood.index]?.[3] ?? "")}</p>
+      <label for="moodNote">Zusatz-Hinweis (optional)</label>
+      <input id="moodNote" name="mood_note" maxlength="120" value="${esc(mood.note)}" placeholder="Heute lieber etwas Ruhiges">`;
   } else if (options) {
     const selected = options.some(([key]) => key === value);
     const unavailable = value && !selected
@@ -1307,9 +1362,10 @@ function profileFieldView([field, label, placeholder], entry) {
 }
 
 function updateMoodPreview(radio) {
-  const mood = radio.value;
-  radio.closest(".mood-picker").querySelector("summary").textContent = mood || "Stimmung wählen";
-  document.getElementById("profileMood").textContent = "Stimmung: " + (mood || "Keine ausgewählt");
+  const form = radio.form;
+  const {index} = moodParts(radio.value);
+  form.querySelector("[data-mood-description]").textContent = moodChoices[index]?.[3] ?? "";
+  document.getElementById("profileMood").innerHTML = moodBadge(radio.value, "Keine Stimmung ausgewählt");
 }
 
 function profileToyPhoto(id) {
@@ -1667,7 +1723,8 @@ async function showPartnerProfile(root) {
     const released = fields.data.filter(entry => currentProfileEntry(entry, day)).map(entry => {
       const field = profileFields.find(([key]) => key === entry.field);
       if (!field) return "";
-      const options = profileOptions(entry.field);
+      if (entry.field === "mood") return entry.value ? `<dt>${esc(field[1])}</dt><dd>${moodBadge(entry.value)}</dd>` : "";
+    const options = profileOptions(entry.field);
       const value = options ? (options.find(([key]) => key === entry.value)?.[1] ?? (entry.field === "mood" ? entry.value : "")) : entry.value;
       return value ? `<dt>${esc(field[1])}</dt><dd>${esc(value)}${entry.field === "toy" ? profileToyPhoto(entry.value) : ""}</dd>` : "";
     }).join("");
@@ -1693,6 +1750,7 @@ function profileView() {
   const sharedList = shared.map(entry => {
     const field = profileFields.find(([key]) => key === entry.field);
     if (!field) return "";
+    if (entry.field === "mood") return entry.value ? `<dt>${esc(field[1])}</dt><dd>${moodBadge(entry.value)}</dd>` : "";
     const options = profileOptions(entry.field);
     const value = options ? (options.find(([key]) => key === entry.value)?.[1] ?? (entry.field === "mood" ? entry.value : "")) : entry.value;
     return value ? `<dt>${field[1]}</dt><dd>${esc(value)}${entry.field === "toy" ? profileToyPhoto(entry.value) : ""}</dd>` : "";
@@ -1707,7 +1765,7 @@ function profileView() {
         <button type="button" id="profilePhotoButton" aria-label="Profilbild" aria-controls="profilePhotoForm" aria-expanded="false"><span id="profilePhotoIcon">📷</span><img id="profileOwnPhoto" alt="" hidden></button>
       </div>
       <div class="profile-mood-row">
-        <output class="profile-mood" id="profileMood">Stimmung: ${esc(mood || "Keine ausgewählt")}</output>
+        <output class="profile-mood" id="profileMood">${moodBadge(mood, "Keine Stimmung ausgewählt")}</output>
         <button type="button" id="profileMenuToggle" aria-label="Profilmenü" aria-expanded="false" aria-controls="profileSectionMenu" onclick="const menu = document.getElementById('profileSectionMenu'); menu.hidden = !menu.hidden; this.setAttribute('aria-expanded', String(!menu.hidden))">☰</button>
       </div>
       <form id="profilePhotoForm" hidden>
@@ -1797,7 +1855,11 @@ async function saveProfileFields(event) {
     if ((field === "mood") !== (form.dataset.profileFields === "mood")) continue;
     const previous = state.profileFields.find(entry => entry.user_id === active.userId && entry.field === field);
     const current = currentProfileEntry(previous, day);
-    const value = String(values.get(field) ?? "").trim();
+    let value = String(values.get(field) ?? "").trim();
+    if (field === "mood" && value) {
+      const note = String(values.get("mood_note") ?? "").trim().slice(0, 120);
+      if (note) value += "\n" + note;
+    }
     const shared = Boolean(value && values.has(field + "_shared"));
     if ((current?.value || "") === value && Boolean(current?.shared) === shared) continue;
     rows.push({couple_id: active.coupleId, user_id: active.userId, field, value, shared, mood_on: field === "mood" ? day : null});
@@ -1816,7 +1878,10 @@ async function saveProfileFields(event) {
     state.profileFields = [...state.profileFields.filter(entry => entry.user_id !== active.userId || !changed.has(entry.field)), ...rows];
     if (view === "profil") {
       const moodRow = rows.find(row => row.field === "mood");
-      if (moodRow) document.getElementById("profileMood").textContent = "Stimmung: " + (moodRow.value || "Keine ausgewählt");
+      if (moodRow) {
+        document.getElementById("profileMood").innerHTML = moodBadge(moodRow.value, "Keine Stimmung ausgewählt");
+        updateAccountMoods();
+      }
       status.textContent = "Gespeichert.";
     }
   } catch {
@@ -2434,6 +2499,7 @@ for (let n = 1; n <= count; n++) {
 }
 html+=`</div><div class="small" style="margin-top:10px">Heute und vergangene Tage sind geöffnet. Künftige Tage zeigen das Kategorie-Symbol.${state.periods.length ? " · Rosa Linie = Periode" : ""}</div></div>`;
 html+=planningPanel(first);
+if (selected === calendarIndex(today)) html += `<div id="moodDailyAnchor">${moodDailySuggestion()}</div>`;
 if (!isReleased(selected)) return html + periodView(d) + mutualInterestsView();
 let idea=days[selected];
 html+=`<div class="panel"><div class="small">${fmt(d)} · Tag ${selected+1} von 365</div><h2 style="margin-top:5px">Eure Idee des Tages</h2>${categoryTag(idea.cat)}<div class="idea"><h3>${esc(idea.text)}</h3></div><div class="detail-card"><span class="detail-label">👥 Wer macht was?</span><strong>${esc(idea.roles)}</strong></div><div class="detail-grid"><div class="detail-card"><span class="detail-label">⏱ Zeit einplanen</span><strong>${esc(idea.duration)}</strong></div><div class="detail-card"><span class="detail-label">⚡ Intensität</span><strong>${esc(idea.level)}</strong></div></div><div class="detail-card"><span class="detail-label">🧰 Benötigte Utensilien / Vorbereitung</span><ul class="materials">${idea.materials.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><p class="small">Die Angaben sind Vorschläge. Passt Dauer und Material gemeinsam an; Zustimmung, Grenzen und jederzeitige Pause haben Vorrang.</p><label class="checkline"><input type="checkbox" ${state.done.includes(idea.id)?"checked":""} onchange="toggleDone('${idea.id}',this.checked)"> Als erledigt markieren</label><div class="actions"><button class="primary" onclick="toggleFav('${idea.id}')">${state.favs.includes(idea.id)?"★ Favorit entfernen":"☆ Als Favorit speichern"}</button><button onclick="goView('zufall')">🎲 Zufallsgenerator</button></div><div class="actions"><button class="ghost" onclick="addToList('${idea.id}')">+ Meine Wunschliste</button></div></div>`;
@@ -2786,16 +2852,19 @@ render();
       <div class="account-identity">
         <span id="accountAvatar" class="account-avatar" role="img">${account.avatar}</span>
         <span class="account-name">${esc(account.displayName)}</span>
+        <div id="accountMood" class="account-mood"></div>
       </div>
       <div id="partnerIdentity" class="account-identity" hidden>
         <button id="partnerAvatar" class="account-avatar" type="button" aria-label="Partnerprofil öffnen">🖤</button>
         <span class="account-name">Schatz</span>
+        <div id="partnerMood" class="account-mood"></div>
       </div>
     </div>
       <button id="profileButton" class="profile-menu-button" type="button" aria-label="Mein Bereich öffnen">
         <span class="profile-menu-icon" aria-hidden="true"></span>
       </button>`;
     updateAvatarConnection();
+    updateAccountMoods();
     startPartnerPresence();
     const destination = new URLSearchParams(location.search).get("push");
     if (destination === "kalender" || destination === "toys" || destination === "chat") {
@@ -2854,10 +2923,25 @@ render();
     }
     presencePendingFor = active;
     try {
-      const {data,error} = await authClient.rpc("love_presence_ping",{p_couple_id:active.coupleId});
+      const [{data,error}, moods] = await Promise.all([
+        authClient.rpc("love_presence_ping",{p_couple_id:active.coupleId}),
+        authClient.from("love_profile_fields").select("user_id,field,value,shared,mood_on")
+          .eq("couple_id", active.coupleId).eq("field", "mood").eq("shared", true)
+          .neq("user_id", active.userId).eq("mood_on", dateKey(berlinCalendarDate()))
+      ]);
       if (active !== account) return;
       if (error) throw error;
       showPartnerStatus(data[0]);
+      if (!moods.error) {
+        state.profileFields = state.profileFields.filter(entry => entry.field !== "mood" || entry.user_id === active.userId).concat(moods.data);
+        updateAccountMoods();
+        const suggestion = document.querySelector(".mood-suggestion");
+        const anchor = document.getElementById("moodDailyAnchor");
+        if (anchor) {
+          const markup = moodDailySuggestion();
+          if ((suggestion?.outerHTML ?? "") !== markup) anchor.innerHTML = markup;
+        }
+      }
     } catch {
       const identity = document.getElementById("partnerIdentity");
       if (active === account && identity && !identity.hidden) showPartnerStatus({partner_online:null});
